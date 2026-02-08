@@ -459,6 +459,8 @@ export const LoginService = async (req) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
+        role: user.role,
+        profileImage: user.profileImage,
       },
     };
   } catch (e) {
@@ -550,6 +552,7 @@ export const GoogleAuthService = async (req) => {
         name: user.name,
         email: user.email,
         phone: user.phone,
+        role: user.role,
         profileImage: user.profileImage,
       },
     };

@@ -18,6 +18,7 @@
     "firebase-admin": "^13.6.0",
     "libphonenumber-js": "^1.12.36",
     "mongoose": "^9.1.5",
+    "multer": "^2.0.2",
     "nodemailer": "^7.0.13",
     "twilio": "^5.12.0"
   },
