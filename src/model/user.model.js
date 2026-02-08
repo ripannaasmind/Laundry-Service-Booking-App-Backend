@@ -18,7 +18,7 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: false, // Not required for Google login users
       trim: true,
-      default: null,
+      default: undefined, // Use undefined instead of null for sparse index
     },
     password: {
       type: String,
@@ -51,13 +51,17 @@ userSchema.pre('save', function() {
   if (!this.password && !this.googleId) {
     throw new Error('Either password or Google authentication is required');
   }
+  
+  // Convert empty phone string to undefined for sparse index
+  if (this.phone === '' || this.phone === null) {
+    this.phone = undefined;
+  }
 });
 
-// Create unique index for phone that allows null values
+// Create unique sparse index for phone (allows multiple undefined/null values)
 userSchema.index({ phone: 1 }, { 
   unique: true, 
-  sparse: true, // Only enforce uniqueness when phone is not null
-  partialFilterExpression: { phone: { $type: 'string', $ne: null } }
+  sparse: true // Sparse index ignores documents without the field
 });
 
 const User = mongoose.model("User", userSchema);

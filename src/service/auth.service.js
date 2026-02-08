@@ -5,6 +5,332 @@ import { EncodeToken } from "../utils/TokenHelper.js";
 import { EmailSend } from "../utils/emailHelper.js";
 import { SendOtpSms } from "../utils/smsHelper.js";
 import admin from "../config/firebase.js";
+import { parsePhoneNumber, getCountries } from 'libphonenumber-js';
+
+/**
+ * Normalize phone number to E.164 format
+ * Tries multiple strategies to detect the correct country code
+ * Supports ALL 245 countries
+ */
+const normalizePhoneNumber = (phone) => {
+  try {
+    const cleaned = phone.trim();
+    
+    console.log(`\n📱 NORMALIZING PHONE: "${cleaned}"`);
+    
+    // STEP 1: If already has + and valid, return immediately
+    if (cleaned.startsWith('+')) {
+      try {
+        const phoneNumber = parsePhoneNumber(cleaned);
+        if (phoneNumber && phoneNumber.isValid()) {
+          console.log(`✅ Already valid: ${cleaned} → ${phoneNumber.format('E.164')} (${phoneNumber.country})`);
+          return phoneNumber.format('E.164');
+        }
+      } catch (e) {}
+    }
+    
+    // STEP 2: Try adding + prefix (user may have entered country code without +)
+    // Example: "61293425678" → "+61293425678" (Australia)
+    if (!cleaned.startsWith('+') && !cleaned.startsWith('0')) {
+      try {
+        const withPlus = `+${cleaned}`;
+        const phoneNumber = parsePhoneNumber(withPlus);
+        if (phoneNumber && phoneNumber.isValid()) {
+          console.log(`✅ Added + prefix: ${cleaned} → ${phoneNumber.format('E.164')} (${phoneNumber.country})`);
+          return phoneNumber.format('E.164');
+        }
+      } catch (e) {}
+    }
+    
+    // STEP 3: Smart pattern matching based on number format
+    // Try specific countries based on phone number patterns FIRST
+    const patternMatches = detectCountryByPattern(cleaned);
+    for (const country of patternMatches) {
+      try {
+        const phoneNumber = parsePhoneNumber(cleaned, country);
+        if (phoneNumber && phoneNumber.isValid()) {
+          console.log(`✅ Pattern match: ${cleaned} → ${phoneNumber.format('E.164')} (${country})`);
+          return phoneNumber.format('E.164');
+        }
+      } catch (e) { continue; }
+    }
+    
+    // STEP 4: Try ALL countries as last resort
+    const allCountries = getCountries();
+    for (const country of allCountries) {
+      try {
+        const phoneNumber = parsePhoneNumber(cleaned, country);
+        if (phoneNumber && phoneNumber.isValid()) {
+          console.log(`✅ Fallback match: ${cleaned} → ${phoneNumber.format('E.164')} (${country})`);
+          return phoneNumber.format('E.164');
+        }
+      } catch (e) { continue; }
+    }
+    
+    // STEP 5: Return with + prefix as last resort
+    const result = cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+    console.log(`⚠️ No valid country found, fallback: ${result}`);
+    return result;
+    
+  } catch (error) {
+    console.error('❌ Phone normalization error:', error.message);
+    const cleaned = phone.trim();
+    return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+  }
+};
+
+/**
+ * Detect likely countries based on phone number pattern
+ * Returns array of country codes to try in priority order
+ */
+const detectCountryByPattern = (phone) => {
+  const cleaned = phone.replace(/[\s\-\(\)]/g, '');
+  const countries = [];
+  
+  // === Numbers starting with 0 (local format) ===
+  
+  // Bangladesh: 01XXXXXXXXX (11 digits starting with 01)
+  if (/^01[3-9]\d{8}$/.test(cleaned)) countries.push('BD');
+  
+  // UK: 07XXXXXXXXX (11 digits starting with 07)
+  if (/^07\d{9}$/.test(cleaned)) countries.push('GB');
+  
+  // Australia: 04XXXXXXXX (10 digits starting with 04)
+  if (/^04\d{8}$/.test(cleaned)) countries.push('AU');
+  
+  // Germany: 01XXXXXXXX (starts with 01, 11-12 digits)
+  if (/^0[1-9]\d{9,10}$/.test(cleaned) && !countries.includes('BD')) countries.push('DE');
+  
+  // Indonesia: 08XXXXXXXXXX (starts with 08, 10-13 digits)
+  if (/^08\d{8,11}$/.test(cleaned)) countries.push('ID');
+  
+  // Malaysia: 01XXXXXXXXX (starts with 01, 10-11 digits)
+  if (/^01[0-9]\d{7,8}$/.test(cleaned) && !countries.includes('BD')) countries.push('MY');
+  
+  // Thailand: 0[689]XXXXXXXX (starts with 06/08/09, 10 digits)
+  if (/^0[689]\d{8}$/.test(cleaned)) countries.push('TH');
+  
+  // Japan: 0X0XXXXXXXX (starts with 0, 10-11 digits)  
+  if (/^0[1-9]0\d{7,8}$/.test(cleaned)) countries.push('JP');
+  
+  // === Numbers NOT starting with 0 (no local prefix) ===
+  
+  // India: 10 digits starting with 6-9
+  if (/^[6-9]\d{9}$/.test(cleaned)) countries.push('IN');
+  
+  // USA/Canada: 10 digits, area code starts with 2-9
+  if (/^[2-9]\d{9}$/.test(cleaned)) countries.push('US', 'CA');
+  
+  // Pakistan: 3XXXXXXXXX (10 digits starting with 3)
+  if (/^3[0-9]\d{8}$/.test(cleaned)) countries.push('PK');
+  
+  // Saudi Arabia: 5XXXXXXXX (9 digits starting with 5)
+  if (/^5[0-9]\d{7}$/.test(cleaned)) countries.push('SA');
+  
+  // UAE: 5XXXXXXXX (9 digits starting with 5)
+  if (/^5[0-9]\d{7}$/.test(cleaned)) countries.push('AE');
+  
+  // Egypt: 1XXXXXXXXX (10 digits starting with 1)
+  if (/^1[0-2]\d{8}$/.test(cleaned)) countries.push('EG');
+  
+  // Nigeria: 70-90XXXXXXXX (11 digits)
+  if (/^[789]0\d{8}$/.test(cleaned)) countries.push('NG');
+  
+  // Turkey: 5XXXXXXXXX (10 digits starting with 5)
+  if (/^5\d{9}$/.test(cleaned)) countries.push('TR');
+  
+  // South Korea: 10-11XXXXXXXX (10-11 digits starting with 10/11)
+  if (/^1[01]\d{8}$/.test(cleaned)) countries.push('KR');
+  
+  // Brazil: 11 digits
+  if (/^[1-9]\d{10}$/.test(cleaned)) countries.push('BR');
+  
+  // Philippines: 9XXXXXXXXX (10 digits starting with 9)
+  if (/^9\d{9}$/.test(cleaned)) countries.push('PH');
+  
+  // Vietnam: 0XXXXXXXXX or 3/5/7/8/9XXXXXXXX
+  if (/^[35789]\d{8}$/.test(cleaned)) countries.push('VN');
+  
+  // China: 1XXXXXXXXXX (11 digits starting with 1)
+  if (/^1[3-9]\d{9}$/.test(cleaned)) countries.push('CN');
+  
+  // Singapore: 8/9XXXXXXX (8 digits starting with 8/9)
+  if (/^[89]\d{7}$/.test(cleaned)) countries.push('SG');
+  
+  // Nepal: 9XXXXXXXXX (10 digits starting with 9)
+  if (/^9[78]\d{8}$/.test(cleaned)) countries.push('NP');
+  
+  // Sri Lanka: 7XXXXXXXX (9 digits starting with 7)
+  if (/^7\d{8}$/.test(cleaned)) countries.push('LK');
+  
+  // Myanmar: 9XXXXXXXX (9-10 digits)
+  if (/^9\d{7,9}$/.test(cleaned)) countries.push('MM');
+  
+  // Iraq: 7XXXXXXXXX (10 digits starting with 7)
+  if (/^7[3-9]\d{8}$/.test(cleaned)) countries.push('IQ');
+  
+  // Iran: 9XXXXXXXXX (10 digits starting with 9)
+  if (/^9[0-9]\d{8}$/.test(cleaned)) countries.push('IR');
+  
+  // Kenya: 7XXXXXXXX (9 digits starting with 7)
+  if (/^7\d{8}$/.test(cleaned)) countries.push('KE');
+  
+  // South Africa: 6-8XXXXXXXX (9 digits)
+  if (/^[6-8]\d{8}$/.test(cleaned)) countries.push('ZA');
+  
+  // Morocco: 6-7XXXXXXXX (9 digits starting with 6/7)
+  if (/^[67]\d{8}$/.test(cleaned)) countries.push('MA');
+  
+  // Mexico: 10 digits
+  if (/^[1-9]\d{9}$/.test(cleaned)) countries.push('MX');
+  
+  // Argentina: 11 digits
+  if (/^[1-9]\d{9,10}$/.test(cleaned)) countries.push('AR');
+  
+  // France: 06/07XXXXXXXX
+  if (/^0[67]\d{8}$/.test(cleaned)) countries.push('FR');
+  
+  // Italy: 3XXXXXXXXX
+  if (/^3\d{9}$/.test(cleaned)) countries.push('IT');
+  
+  // Spain: 6/7XXXXXXXX (9 digits)
+  if (/^[67]\d{8}$/.test(cleaned)) countries.push('ES');
+  
+  // Russia: 9XXXXXXXXX (10 digits)
+  if (/^9\d{9}$/.test(cleaned)) countries.push('RU');
+  
+  // New Zealand: 02XXXXXXXXX
+  if (/^02\d{7,9}$/.test(cleaned)) countries.push('NZ');
+  
+  // Kuwait: 5/6/9XXXXXXX (8 digits)
+  if (/^[569]\d{7}$/.test(cleaned)) countries.push('KW');
+  
+  // Qatar: 3/5/6/7XXXXXXX (8 digits)
+  if (/^[3567]\d{7}$/.test(cleaned)) countries.push('QA');
+  
+  // Bahrain: 3XXXXXXX (8 digits)
+  if (/^3\d{7}$/.test(cleaned)) countries.push('BH');
+  
+  // Oman: 7/9XXXXXXX (8 digits)
+  if (/^[79]\d{7}$/.test(cleaned)) countries.push('OM');
+  
+  console.log(`🔎 Pattern detection for "${phone}":`, countries.length > 0 ? countries.join(', ') : 'no pattern match');
+  
+  return countries;
+};
+
+/**
+ * Get all possible E.164 formats for a phone number
+ * Used for searching in the database
+ * Example: "293425678" → ["+293425678", "+61293425678", "+88293425678", ...]
+ */
+const getAllPossiblePhoneFormats = (phone) => {
+  const cleaned = phone.trim();
+  const formats = new Set();
+  
+  // Add the normalized version
+  const normalized = normalizePhoneNumber(cleaned);
+  formats.add(normalized);
+  
+  // Add original with + prefix
+  if (!cleaned.startsWith('+')) {
+    formats.add(`+${cleaned}`);
+  }
+  formats.add(cleaned);
+  
+  // If already has +, parse it
+  if (cleaned.startsWith('+')) {
+    try {
+      const phoneNumber = parsePhoneNumber(cleaned);
+      if (phoneNumber && phoneNumber.isValid()) {
+        formats.add(phoneNumber.format('E.164'));
+        formats.add(phoneNumber.formatNational().replace(/[\s()-]/g, ''));
+      }
+    } catch (e) {}
+  }
+  
+  // Try + prefix version
+  if (!cleaned.startsWith('+')) {
+    try {
+      const withPlus = `+${cleaned}`;
+      const phoneNumber = parsePhoneNumber(withPlus);
+      if (phoneNumber && phoneNumber.isValid()) {
+        formats.add(phoneNumber.format('E.164'));
+      }
+    } catch (e) {}
+  }
+  
+  // Try all countries to find all possible matches
+  const allCountries = getCountries();
+  for (const country of allCountries) {
+    try {
+      const phoneNumber = parsePhoneNumber(cleaned, country);
+      if (phoneNumber && phoneNumber.isValid()) {
+        formats.add(phoneNumber.format('E.164'));
+      }
+    } catch (e) {
+      continue;
+    }
+  }
+  
+  const result = [...formats];
+  console.log(`🔍 Possible formats for "${cleaned}":`, result);
+  return result;
+};
+
+/**
+ * Find user by email or phone (searches all possible phone formats)
+ */
+const findUserByEmailOrPhone = async (emailOrPhone) => {
+  const isEmail = emailOrPhone.includes('@');
+  
+  if (isEmail) {
+    return await User.findOne({ email: emailOrPhone.toLowerCase() });
+  }
+  
+  // Get all possible phone formats and search for any match
+  const phoneFormats = getAllPossiblePhoneFormats(emailOrPhone);
+  
+  const user = await User.findOne({
+    phone: { $in: phoneFormats }
+  });
+  
+  if (user) {
+    console.log(`✅ User found with phone: ${user.phone}`);
+  } else {
+    console.log(`❌ No user found for any format of: ${emailOrPhone}`);
+  }
+  
+  return user;
+};
+
+/**
+ * Find OTP record by identifier (searches all possible phone formats)
+ */
+const findOTPRecord = async (emailOrPhone, otp, purpose) => {
+  const isEmail = emailOrPhone.includes('@');
+  
+  if (isEmail) {
+    return await OTP.findOne({
+      identifier: emailOrPhone.toLowerCase(),
+      otp,
+      purpose,
+      isUsed: false,
+      expiresAt: { $gt: new Date() },
+    });
+  }
+  
+  // Get all possible phone formats
+  const phoneFormats = getAllPossiblePhoneFormats(emailOrPhone);
+  
+  return await OTP.findOne({
+    identifier: { $in: phoneFormats },
+    otp,
+    purpose,
+    isUsed: false,
+    expiresAt: { $gt: new Date() },
+  });
+};
 
 // Generate 6 digit OTP
 const generateOTP = () => {
@@ -43,9 +369,13 @@ export const RegisterService = async (req) => {
       return { status: "failed", message: "Password must be at least 6 characters" };
     }
 
-    // Check if user already exists
+    // Normalize phone number to international format
+    const normalizedPhone = normalizePhoneNumber(phone);
+    console.log(`📱 Phone normalization: ${phone} → ${normalizedPhone}`);
+
+    // Check if user already exists with normalized phone
     const existingUser = await User.findOne({
-      $or: [{ email: email.toLowerCase() }, { phone }],
+      $or: [{ email: email.toLowerCase() }, { phone: normalizedPhone }],
     });
 
     if (existingUser) {
@@ -58,11 +388,11 @@ export const RegisterService = async (req) => {
     // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Create new user
+    // Create new user with normalized phone
     const newUser = await User.create({
       name,
       email: email.toLowerCase(),
-      phone,
+      phone: normalizedPhone,
       password: hashedPassword,
       isVerified: true,
     });
@@ -97,13 +427,10 @@ export const LoginService = async (req) => {
       return { status: "failed", message: "Email/Phone and password are required" };
     }
 
-    // Find user by email or phone
-    const user = await User.findOne({
-      $or: [
-        { email: emailOrPhone.toLowerCase() },
-        { phone: emailOrPhone },
-      ],
-    });
+    console.log(`🔐 Login attempt: ${emailOrPhone}`);
+
+    // Find user by email or phone (searches all possible formats)
+    const user = await findUserByEmailOrPhone(emailOrPhone);
 
     if (!user) {
       return { status: "failed", message: "User not found" };
@@ -201,8 +528,8 @@ export const GoogleAuthService = async (req) => {
       user = await User.create({
         name: name || email.split('@')[0] || "Google User",
         email: email.toLowerCase(),
-        phone: "", // Optional: User can add phone later
-        password: null, // No password for Google users
+        // Don't set phone field - let it be undefined for Google users
+        password: undefined, // No password for Google users
         googleId: uid,
         profileImage: picture || "",
         isVerified: true,
@@ -247,13 +574,18 @@ export const ForgotPasswordService = async (req) => {
       return { status: "failed", message: "Email or phone is required" };
     }
 
-    // Find user by email or phone
-    const user = await User.findOne({
-      $or: [
-        { email: emailOrPhone.toLowerCase() },
-        { phone: emailOrPhone },
-      ],
-    });
+    const isEmail = emailOrPhone.includes('@');
+
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🔑 FORGOT PASSWORD REQUEST');
+    console.log('Input:', emailOrPhone);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+
+    // Find user by email or phone (searches all possible formats)
+    const user = await findUserByEmailOrPhone(emailOrPhone);
+
+    console.log('User found:', user ? `Yes (${user.email}, phone: ${user.phone})` : 'No');
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
 
     if (!user) {
       return { status: "failed", message: "User not found" };
@@ -261,17 +593,19 @@ export const ForgotPasswordService = async (req) => {
 
     // Generate OTP
     const otp = generateOTP();
-    const isEmail = emailOrPhone.includes("@");
 
-    // Delete any existing OTPs for this identifier
+    // Use the phone stored in DB as the OTP identifier for phone-based requests
+    const otpIdentifier = isEmail ? emailOrPhone.toLowerCase() : user.phone;
+
+    // Delete any existing OTPs
     await OTP.deleteMany({
-      identifier: emailOrPhone.toLowerCase(),
+      identifier: otpIdentifier,
       purpose: "forgot_password",
     });
 
     // Save OTP to database
     await OTP.create({
-      identifier: isEmail ? emailOrPhone.toLowerCase() : emailOrPhone,
+      identifier: otpIdentifier,
       otp,
       type: isEmail ? "email" : "phone",
       purpose: "forgot_password",
@@ -284,8 +618,27 @@ export const ForgotPasswordService = async (req) => {
       const emailSubject = "Password Reset OTP - Ultra Wash";
       await EmailSend(emailOrPhone, emailText, emailSubject);
     } else {
-      // Send OTP via SMS
-      await SendOtpSms(emailOrPhone, otp);
+      // Try to send OTP via SMS using the DB phone (always E.164)
+      try {
+        await SendOtpSms(user.phone, otp);
+      } catch (smsError) {
+        console.log('⚠️ SMS failed, checking for email fallback...');
+        
+        if (user.email) {
+          console.log(`📧 Sending OTP to email instead: ${user.email}`);
+          const emailText = `Your password reset OTP is: ${otp}. Valid for 10 minutes.\n\nNote: SMS service is temporarily unavailable, so we sent this code via email.`;
+          const emailSubject = "Password Reset OTP - Ultra Wash";
+          await EmailSend(user.email, emailText, emailSubject);
+          
+          return {
+            status: "success",
+            message: `SMS service unavailable. OTP sent to your registered email: ${user.email.substring(0, 3)}***@${user.email.split('@')[1]}`,
+            type: "email",
+          };
+        } else {
+          throw new Error('SMS service unavailable and no email on file.');
+        }
+      }
     }
 
     return {
@@ -309,14 +662,8 @@ export const VerifyForgotPasswordOTPService = async (req) => {
       return { status: "failed", message: "Email/Phone and OTP are required" };
     }
 
-    // Find valid OTP
-    const otpRecord = await OTP.findOne({
-      identifier: emailOrPhone.toLowerCase(),
-      otp,
-      purpose: "forgot_password",
-      isUsed: false,
-      expiresAt: { $gt: new Date() },
-    });
+    // Find OTP record (searches all possible phone formats)
+    const otpRecord = await findOTPRecord(emailOrPhone, otp, "forgot_password");
 
     if (!otpRecord) {
       return { status: "failed", message: "Invalid or expired OTP" };
@@ -364,13 +711,28 @@ export const ResetPasswordService = async (req) => {
     }
 
     // ✅ IMPORTANT: Verify resetToken is valid and not expired
-    const otpRecord = await OTP.findOne({
-      identifier: emailOrPhone.toLowerCase(),
-      purpose: "forgot_password",
-      isVerified: true,
-      resetToken: resetToken,
-      resetTokenExpiresAt: { $gt: new Date() }, // Token must not be expired
-    });
+    // Search all possible phone formats for OTP record
+    const isEmail = emailOrPhone.includes('@');
+    let otpRecord;
+    
+    if (isEmail) {
+      otpRecord = await OTP.findOne({
+        identifier: emailOrPhone.toLowerCase(),
+        purpose: "forgot_password",
+        isVerified: true,
+        resetToken: resetToken,
+        resetTokenExpiresAt: { $gt: new Date() },
+      });
+    } else {
+      const phoneFormats = getAllPossiblePhoneFormats(emailOrPhone);
+      otpRecord = await OTP.findOne({
+        identifier: { $in: phoneFormats },
+        purpose: "forgot_password",
+        isVerified: true,
+        resetToken: resetToken,
+        resetTokenExpiresAt: { $gt: new Date() },
+      });
+    }
 
     if (!otpRecord) {
       return { 
@@ -379,13 +741,8 @@ export const ResetPasswordService = async (req) => {
       };
     }
 
-    // Find user
-    const user = await User.findOne({
-      $or: [
-        { email: emailOrPhone.toLowerCase() },
-        { phone: emailOrPhone },
-      ],
-    });
+    // Find user (searches all possible formats)
+    const user = await findUserByEmailOrPhone(emailOrPhone);
 
     if (!user) {
       return { status: "failed", message: "User not found" };
@@ -399,8 +756,9 @@ export const ResetPasswordService = async (req) => {
     await user.save();
 
     // Delete all OTPs for this user (cleanup)
+    const cleanupIdentifiers = isEmail ? [emailOrPhone.toLowerCase()] : getAllPossiblePhoneFormats(emailOrPhone);
     await OTP.deleteMany({
-      identifier: emailOrPhone.toLowerCase(),
+      identifier: { $in: cleanupIdentifiers },
     });
 
     return {
@@ -423,13 +781,11 @@ export const SendLoginOTPService = async (req) => {
       return { status: "failed", message: "Email or phone is required" };
     }
 
-    // Find user
-    const user = await User.findOne({
-      $or: [
-        { email: emailOrPhone.toLowerCase() },
-        { phone: emailOrPhone },
-      ],
-    });
+    const isEmail = emailOrPhone.includes('@');
+    console.log(`📲 Send Login OTP: ${emailOrPhone}`);
+
+    // Find user (searches all possible phone formats)
+    const user = await findUserByEmailOrPhone(emailOrPhone);
 
     if (!user) {
       return { status: "failed", message: "User not found. Please register first." };
@@ -437,17 +793,19 @@ export const SendLoginOTPService = async (req) => {
 
     // Generate OTP
     const otp = generateOTP();
-    const isEmail = emailOrPhone.includes("@");
+
+    // Use user's DB phone as OTP identifier for phone requests
+    const otpIdentifier = isEmail ? emailOrPhone.toLowerCase() : user.phone;
 
     // Delete existing OTPs
     await OTP.deleteMany({
-      identifier: emailOrPhone.toLowerCase(),
+      identifier: otpIdentifier,
       purpose: "login",
     });
 
     // Save OTP
     await OTP.create({
-      identifier: isEmail ? emailOrPhone.toLowerCase() : emailOrPhone,
+      identifier: otpIdentifier,
       otp,
       type: isEmail ? "email" : "phone",
       purpose: "login",
@@ -460,8 +818,26 @@ export const SendLoginOTPService = async (req) => {
       const emailSubject = "Login OTP - Ultra Wash";
       await EmailSend(emailOrPhone, emailText, emailSubject);
     } else {
-      // Send OTP via SMS
-      await SendOtpSms(emailOrPhone, otp);
+      // Try to send OTP via SMS using DB phone (always E.164)
+      try {
+        await SendOtpSms(user.phone, otp);
+      } catch (smsError) {
+        console.log('⚠️ SMS failed, checking for email fallback...');
+        
+        if (user.email) {
+          console.log(`📧 Sending OTP to email instead: ${user.email}`);
+          const emailText = `Your login OTP is: ${otp}. Valid for 10 minutes.\n\nNote: SMS service is temporarily unavailable, so we sent this code via email.`;
+          const emailSubject = "Login OTP - Ultra Wash";
+          await EmailSend(user.email, emailText, emailSubject);
+          
+          return {
+            status: "success",
+            message: `SMS service unavailable. OTP sent to your registered email: ${user.email.substring(0, 3)}***@${user.email.split('@')[1]}`,
+          };
+        } else {
+          throw new Error('SMS service unavailable and no email on file.');
+        }
+      }
     }
 
     return {
@@ -484,14 +860,8 @@ export const VerifyLoginOTPService = async (req) => {
       return { status: "failed", message: "Email/Phone and OTP are required" };
     }
 
-    // Verify OTP
-    const otpRecord = await OTP.findOne({
-      identifier: emailOrPhone.toLowerCase(),
-      otp,
-      purpose: "login",
-      isUsed: false,
-      expiresAt: { $gt: new Date() },
-    });
+    // Find OTP record (searches all possible phone formats)
+    const otpRecord = await findOTPRecord(emailOrPhone, otp, "login");
 
     if (!otpRecord) {
       return { status: "failed", message: "Invalid or expired OTP" };
@@ -501,13 +871,8 @@ export const VerifyLoginOTPService = async (req) => {
     otpRecord.isUsed = true;
     await otpRecord.save();
 
-    // Find user
-    const user = await User.findOne({
-      $or: [
-        { email: emailOrPhone.toLowerCase() },
-        { phone: emailOrPhone },
-      ],
-    });
+    // Find user (searches all possible formats)
+    const user = await findUserByEmailOrPhone(emailOrPhone);
 
     if (!user) {
       return { status: "failed", message: "User not found" };

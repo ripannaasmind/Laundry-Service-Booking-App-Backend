@@ -1,8 +1,10 @@
 ﻿/**
  * SMS Helper for sending OTP via Twilio SMS
+ * Phone numbers should already be in E.164 format from auth.service.js
  */
 
 import twilio from 'twilio';
+import { parsePhoneNumber, getCountries } from 'libphonenumber-js';
 
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const authToken = process.env.TWILIO_AUTH_TOKEN;
@@ -10,47 +12,55 @@ const authToken = process.env.TWILIO_AUTH_TOKEN;
 // Validate Twilio credentials
 if (!accountSid || !authToken) {
   console.error('❌ Twilio credentials missing!');
-  console.error('Account SID:', accountSid ? 'Set' : 'Missing');
-  console.error('Auth Token:', authToken ? 'Set' : 'Missing');
 }
 
 const client = twilio(accountSid, authToken);
 
+/**
+ * Ensure phone is in E.164 format before sending SMS
+ */
+const ensureE164 = (phone) => {
+  const cleaned = phone.trim();
+  
+  // Already E.164
+  if (cleaned.startsWith('+')) {
+    try {
+      const p = parsePhoneNumber(cleaned);
+      if (p && p.isValid()) return p.format('E.164');
+    } catch (e) {}
+    return cleaned; // return as-is if already has +
+  }
+  
+  // Try adding + (user entered country code without +)
+  try {
+    const withPlus = `+${cleaned}`;
+    const p = parsePhoneNumber(withPlus);
+    if (p && p.isValid()) return p.format('E.164');
+  } catch (e) {}
+  
+  // Try all countries
+  const allCountries = getCountries();
+  for (const country of allCountries) {
+    try {
+      const p = parsePhoneNumber(cleaned, country);
+      if (p && p.isValid()) return p.format('E.164');
+    } catch (e) { continue; }
+  }
+  
+  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
+};
+
 export const SendOtpSms = async (phone, otp) => {
   try {
+    const formattedPhone = ensureE164(phone);
+    
     console.log('================================================');
-    console.log('📱 Attempting to send SMS OTP');
-    console.log('================================================');
-    console.log('Account SID:', accountSid?.substring(0, 10) + '...');
-    console.log('Phone From:', process.env.TWILIO_PHONE_NUMBER);
-    console.log('Phone To (original):', phone);
+    console.log('📱 Sending SMS OTP');
+    console.log('From:', process.env.TWILIO_PHONE_NUMBER);
+    console.log('To:', formattedPhone);
     console.log('OTP:', otp);
+    console.log('================================================');
     
-    // Format phone number correctly for Bangladesh
-    let formattedPhone = phone.trim();
-    
-    // If phone starts with +, use as is
-    if (formattedPhone.startsWith('+')) {
-      // Already has country code
-    }
-    // If starts with 880 (Bangladesh code without +)
-    else if (formattedPhone.startsWith('880')) {
-      formattedPhone = `+${formattedPhone}`;
-    }
-    // If starts with 0 (local Bangladesh number like 01887905213)
-    else if (formattedPhone.startsWith('0')) {
-      formattedPhone = `+88${formattedPhone}`; // Add +88 for Bangladesh
-    }
-    // If just the number without leading 0 (like 1887905213)
-    else if (formattedPhone.length === 10) {
-      formattedPhone = `+880${formattedPhone}`;
-    }
-    // Otherwise, assume it needs +88
-    else {
-      formattedPhone = `+88${formattedPhone}`;
-    }
-    
-    console.log('Phone To (formatted):', formattedPhone);
     const messageBody = `${otp} is your verification code. For your security, do not share this code.`;
     
     const message = await client.messages.create({
@@ -76,19 +86,33 @@ export const SendOtpSms = async (phone, otp) => {
     console.error('Error Code:', error.code);
     console.error('Error Message:', error.message);
     
-    // Provide helpful error messages
+    // Provide helpful error messages based on Twilio error codes
     if (error.code === 21612) {
-      console.error('\n⚠️  TRIAL ACCOUNT LIMITATION:');
+      console.error('\n🚫 TRIAL ACCOUNT LIMITATION - UNVERIFIED NUMBER');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.error('You can only send messages to verified phone numbers.');
       console.error('Solution 1: Verify the destination number at:');
       console.error('https://console.twilio.com/us1/develop/phone-numbers/manage/verified');
       console.error('Solution 2: Upgrade your Twilio account');
+      console.error('➡️  FALLBACK: Will attempt to send OTP via EMAIL instead');
+    } else if (error.code === 63038) {
+      console.error('\n⏱️  DAILY SMS LIMIT EXCEEDED');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+      console.error('Your Twilio trial account has reached its daily message limit.');
+      console.error('Trial accounts can only send 5 messages per day.');
+      console.error('Solution 1: Wait 24 hours for limit reset');
+      console.error('Solution 2: Upgrade your Twilio account for unlimited messages');
+      console.error('➡️  FALLBACK: Will attempt to send OTP via EMAIL instead');
     } else if (error.code === 20003) {
       console.error('\n⚠️  AUTHENTICATION ERROR:');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
       console.error('Check your TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN in .env');
+    } else {
+      console.error('\n❌ UNKNOWN ERROR:');
+      console.error('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
     }
     
-    console.error('More Info:', error.moreInfo);
+    console.error('More Info:', error.moreInfo || 'N/A');
     console.error('================================================');
     throw error;
   }

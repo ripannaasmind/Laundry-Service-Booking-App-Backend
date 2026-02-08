@@ -16,6 +16,7 @@
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
     "firebase-admin": "^13.6.0",
+    "libphonenumber-js": "^1.12.36",
     "mongoose": "^9.1.5",
     "nodemailer": "^7.0.13",
     "twilio": "^5.12.0"
