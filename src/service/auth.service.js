@@ -942,7 +942,7 @@ export const GetProfileService = async (req) => {
 export const UpdateProfileService = async (req) => {
   try {
     const userId = req.headers.user_id;
-    const { name, phone } = req.body;
+    const { name, phone, profileImage, email } = req.body;
 
     const user = await User.findById(userId);
 
@@ -950,28 +950,54 @@ export const UpdateProfileService = async (req) => {
       return { status: "failed", message: "User not found" };
     }
 
-    // Check if phone already exists for another user
-    if (phone && phone !== user.phone) {
-      const existingPhone = await User.findOne({ phone, _id: { $ne: userId } });
-      if (existingPhone) {
-        return { status: "failed", message: "Phone number already in use" };
-      }
-      user.phone = phone;
+    // Update name
+    if (name !== undefined && name.trim() !== "") {
+      user.name = name.trim();
     }
 
-    if (name) user.name = name;
+    // Update phone (with normalization & duplicate check)
+    if (phone !== undefined) {
+      const cleanPhone = phone.trim();
+      
+      if (cleanPhone === "" || cleanPhone === null) {
+        // Allow clearing phone
+        user.phone = undefined;
+      } else {
+        // Normalize the phone number
+        const normalizedPhone = normalizePhoneNumber(cleanPhone);
+        
+        // Check if normalized phone is different from current
+        const currentNormalized = user.phone ? normalizePhoneNumber(user.phone) : null;
+        
+        if (normalizedPhone !== currentNormalized) {
+          // Check if phone already exists for another user
+          const phoneFormats = getAllPossiblePhoneFormats(cleanPhone);
+          const existingPhone = await User.findOne({
+            phone: { $in: phoneFormats },
+            _id: { $ne: userId },
+          });
+          
+          if (existingPhone) {
+            return { status: "failed", message: "Phone number already in use" };
+          }
+          user.phone = normalizedPhone;
+        }
+      }
+    }
+
+    // Update profile image
+    if (profileImage !== undefined) {
+      user.profileImage = profileImage;
+    }
 
     await user.save();
+
+    const updatedUser = await User.findById(userId).select("-password");
 
     return {
       status: "success",
       message: "Profile updated successfully",
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        phone: user.phone,
-      },
+      data: updatedUser,
     };
   } catch (e) {
     return { status: "failed", message: e.toString() };

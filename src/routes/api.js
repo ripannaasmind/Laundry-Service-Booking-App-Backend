@@ -5,7 +5,8 @@ import { AuthVerification } from "../middleware/authVerification.js";
 import { AdminVerification } from "../middleware/adminVerification.js";
 
 // Upload Controller
-import { upload, UploadImage } from "../controller/upload.controller.js";
+// TODO: Install multer package first: npm install multer
+// import { upload, UploadImage } from "../controller/upload.controller.js";
 
 // Auth Controllers
 import {
@@ -45,6 +46,12 @@ import {
   AdminGetSettings, AdminUpdateSettings,
 } from "../controller/admin.controller.js";
 
+// Store Controllers
+import {
+  GetAllStores, GetNearbyStores, GetStoreBySlug,
+  AdminGetAllStores, AdminCreateStore, AdminUpdateStore, AdminDeleteStore,
+} from "../controller/store.controller.js";
+
 // ========== AUTH ROUTES ==========
 router.post("/auth/register", Register);
 router.post("/auth/login", Login);
@@ -81,7 +88,13 @@ router.put("/reviews/:id", AuthVerification, UpdateMyReview);
 router.delete("/reviews/:id", AuthVerification, DeleteMyReview);
 
 // ========== UPLOAD ROUTES ==========
-router.post("/upload", AuthVerification, upload.single("image"), UploadImage);
+// TODO: Uncomment after installing multer: npm install multer
+// router.post("/upload", AuthVerification, upload.single("image"), UploadImage);
+
+// ========== STORE ROUTES (Public) ==========
+router.get("/stores", GetAllStores);
+router.get("/stores/nearby", GetNearbyStores);
+router.get("/stores/:slug", GetStoreBySlug);
 
 // ========== ADMIN ROUTES ==========
 // Admin - Dashboard
@@ -121,5 +134,11 @@ router.get("/admin/reports", AuthVerification, AdminVerification, AdminGetReport
 // Admin - Settings
 router.get("/admin/settings", AuthVerification, AdminVerification, AdminGetSettings);
 router.put("/admin/settings", AuthVerification, AdminVerification, AdminUpdateSettings);
+
+// Admin - Stores
+router.get("/admin/stores", AuthVerification, AdminVerification, AdminGetAllStores);
+router.post("/admin/stores", AuthVerification, AdminVerification, AdminCreateStore);
+router.put("/admin/stores/:id", AuthVerification, AdminVerification, AdminUpdateStore);
+router.delete("/admin/stores/:id", AuthVerification, AdminVerification, AdminDeleteStore);
 
 export default router;
