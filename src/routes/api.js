@@ -3,10 +3,7 @@ const router = express.Router();
 
 import { AuthVerification } from "../middleware/authVerification.js";
 import { AdminVerification } from "../middleware/adminVerification.js";
-
-// Upload Controller
-// TODO: Install multer package first: npm install multer
-// import { upload, UploadImage } from "../controller/upload.controller.js";
+import { DeliveryVerification, StaffVerification } from "../middleware/roleVerification.js";
 
 // Auth Controllers
 import {
@@ -24,6 +21,8 @@ import {
 import {
   CreateOrder, GetMyOrders, GetOrderById, CancelOrder, GetDashboardStats,
   AdminGetAllOrders, AdminUpdateOrderStatus, AdminGetDashboardStats,
+  AdminAssignPickup, AdminAssignStaff, AdminAssignDelivery,
+  AdminGetNearbyDeliveryBoys, AdminGetStaffList, AdminSettleEarnings,
 } from "../controller/order.controller.js";
 
 // Coupon Controllers
@@ -35,15 +34,17 @@ import {
 // Review Controllers
 import {
   CreateReview, GetMyReviews, UpdateMyReview, DeleteMyReview,
-  GetApprovedReviews, AdminGetAllReviews, AdminUpdateReview, AdminDeleteReview,
+  GetApprovedReviews, GetStoreReviews,
+  AdminGetAllReviews, AdminUpdateReview, AdminDeleteReview,
 } from "../controller/review.controller.js";
 
-// Admin Controllers (Users, Payments, Reports, Settings)
+// Admin Controllers
 import {
   AdminGetAllUsers, AdminUpdateUser,
   AdminGetPayments,
   AdminGetReports,
   AdminGetSettings, AdminUpdateSettings,
+  GetContactSettings, SubmitContactMessage,
 } from "../controller/admin.controller.js";
 
 // Store Controllers
@@ -51,6 +52,24 @@ import {
   GetAllStores, GetNearbyStores, GetStoreBySlug,
   AdminGetAllStores, AdminCreateStore, AdminUpdateStore, AdminDeleteStore,
 } from "../controller/store.controller.js";
+
+// Delivery Controllers
+import {
+  DeliveryDashboardStats, DeliveryPickupOrders, DeliveryConfirmPickup,
+  DeliveryAtWarehouse, DeliveryOutOrders, DeliveryStartDelivery,
+  DeliveryConfirmDelivery, DeliveryCompletedOrders, DeliveryUpdateLocation,
+  DeliveryEarnings,
+} from "../controller/delivery.controller.js";
+
+// Staff Controllers
+import {
+  StaffDashboardStats, StaffGetOrders, StaffStartCleaning,
+  StaffCompleteCleaning, StaffGetOrderDetail,
+} from "../controller/staff.controller.js";
+
+// ========== PUBLIC ROUTES (No Auth) ==========
+router.get("/public/contact-settings", GetContactSettings);
+router.post("/public/contact-message", SubmitContactMessage);
 
 // ========== AUTH ROUTES ==========
 router.post("/auth/register", Register);
@@ -76,28 +95,43 @@ router.get("/orders/dashboard-stats", AuthVerification, GetDashboardStats);
 router.get("/orders/:id", AuthVerification, GetOrderById);
 router.put("/orders/:id/cancel", AuthVerification, CancelOrder);
 
-// ========== COUPON ROUTES (User) ==========
+// ========== COUPON ROUTES ==========
 router.get("/coupons/active", AuthVerification, GetActiveCoupons);
 router.post("/coupons/validate", AuthVerification, ValidateCoupon);
 
-// ========== REVIEW ROUTES (Public & User) ==========
+// ========== REVIEW ROUTES ==========
 router.get("/reviews/approved", GetApprovedReviews);
+router.get("/reviews/store/:storeId", GetStoreReviews);
 router.post("/reviews", AuthVerification, CreateReview);
 router.get("/reviews/my-reviews", AuthVerification, GetMyReviews);
 router.put("/reviews/:id", AuthVerification, UpdateMyReview);
 router.delete("/reviews/:id", AuthVerification, DeleteMyReview);
-
-// ========== UPLOAD ROUTES ==========
-// TODO: Uncomment after installing multer: npm install multer
-// router.post("/upload", AuthVerification, upload.single("image"), UploadImage);
 
 // ========== STORE ROUTES (Public) ==========
 router.get("/stores", GetAllStores);
 router.get("/stores/nearby", GetNearbyStores);
 router.get("/stores/:slug", GetStoreBySlug);
 
+// ========== DELIVERY ROUTES ==========
+router.get("/delivery/dashboard-stats", AuthVerification, DeliveryVerification, DeliveryDashboardStats);
+router.get("/delivery/pickup-orders", AuthVerification, DeliveryVerification, DeliveryPickupOrders);
+router.put("/delivery/pickup/:id", AuthVerification, DeliveryVerification, DeliveryConfirmPickup);
+router.put("/delivery/warehouse/:id", AuthVerification, DeliveryVerification, DeliveryAtWarehouse);
+router.get("/delivery/out-orders", AuthVerification, DeliveryVerification, DeliveryOutOrders);
+router.put("/delivery/start-delivery/:id", AuthVerification, DeliveryVerification, DeliveryStartDelivery);
+router.put("/delivery/confirm-delivery/:id", AuthVerification, DeliveryVerification, DeliveryConfirmDelivery);
+router.get("/delivery/completed", AuthVerification, DeliveryVerification, DeliveryCompletedOrders);
+router.put("/delivery/location", AuthVerification, DeliveryVerification, DeliveryUpdateLocation);
+router.get("/delivery/earnings", AuthVerification, DeliveryVerification, DeliveryEarnings);
+
+// ========== STAFF ROUTES ==========
+router.get("/staff/dashboard-stats", AuthVerification, StaffVerification, StaffDashboardStats);
+router.get("/staff/orders", AuthVerification, StaffVerification, StaffGetOrders);
+router.put("/staff/orders/:id/start-cleaning", AuthVerification, StaffVerification, StaffStartCleaning);
+router.put("/staff/orders/:id/complete-cleaning", AuthVerification, StaffVerification, StaffCompleteCleaning);
+router.get("/staff/orders/:id", AuthVerification, StaffVerification, StaffGetOrderDetail);
+
 // ========== ADMIN ROUTES ==========
-// Admin - Dashboard
 router.get("/admin/dashboard-stats", AuthVerification, AdminVerification, AdminGetDashboardStats);
 
 // Admin - Services
@@ -109,6 +143,14 @@ router.delete("/admin/services/:id", AuthVerification, AdminVerification, Delete
 // Admin - Orders
 router.get("/admin/orders", AuthVerification, AdminVerification, AdminGetAllOrders);
 router.put("/admin/orders/:id/status", AuthVerification, AdminVerification, AdminUpdateOrderStatus);
+router.put("/admin/orders/:id/assign-pickup", AuthVerification, AdminVerification, AdminAssignPickup);
+router.put("/admin/orders/:id/assign-staff", AuthVerification, AdminVerification, AdminAssignStaff);
+router.put("/admin/orders/:id/assign-delivery", AuthVerification, AdminVerification, AdminAssignDelivery);
+
+// Admin - Delivery Boys & Staff
+router.get("/admin/delivery-boys", AuthVerification, AdminVerification, AdminGetNearbyDeliveryBoys);
+router.get("/admin/staff-list", AuthVerification, AdminVerification, AdminGetStaffList);
+router.put("/admin/settle-earnings/:deliveryBoyId", AuthVerification, AdminVerification, AdminSettleEarnings);
 
 // Admin - Coupons
 router.get("/admin/coupons", AuthVerification, AdminVerification, AdminGetAllCoupons);

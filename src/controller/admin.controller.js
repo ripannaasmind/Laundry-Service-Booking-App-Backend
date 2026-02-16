@@ -333,3 +333,116 @@ export const AdminUpdateSettings = async (req, res) => {
     res.status(500).json({ status: "fail", message: err.message });
   }
 };
+
+// ========== CONTACT PAGE SETTINGS (Public) ==========
+
+// GET /public/contact-settings - Get contact page settings (no auth needed)
+export const GetContactSettings = async (req, res) => {
+  try {
+    const Settings = (await import("../model/settings.model.js")).default;
+    const setting = await Settings.findOne({ key: "contactPageData" });
+    
+    // Default contact page data
+    const defaults = {
+      heroTitle: "Get in Touch",
+      heroSubtitle: "Have questions? We'd love to hear from you. Send us a message and we'll respond as soon as possible.",
+      contactInfo: [
+        {
+          type: "phone",
+          title: "Phone",
+          details: ["Main: (239) 555-0108", "Support: (239) 555-0109"],
+          link: "tel:+12395550108",
+        },
+        {
+          type: "email",
+          title: "Email",
+          details: ["info@ultrawash.com", "support@ultrawash.com"],
+          link: "mailto:info@ultrawash.com",
+        },
+        {
+          type: "address",
+          title: "Address",
+          details: ["2118 Thornridge Cir, Syracuse", "New York, NY 13210"],
+          link: "https://maps.google.com",
+        },
+        {
+          type: "hours",
+          title: "Business Hours",
+          details: ["Mon - Sat: 8:00 AM - 8:00 PM", "Sunday: 10:00 AM - 6:00 PM"],
+          link: null,
+        },
+      ],
+      locations: [
+        {
+          name: "Downtown Location",
+          address: "2118 Thornridge Cir, Syracuse, NY",
+          phone: "(239) 555-0108",
+          hours: "Mon-Sat: 8AM-8PM",
+        },
+        {
+          name: "Westside Location",
+          address: "3461 Whittier Ave, Syracuse, NY",
+          phone: "(239) 555-0109",
+          hours: "Mon-Sat: 8AM-8PM",
+        },
+        {
+          name: "Eastside Location",
+          address: "4234 Lighthouse Ln, Syracuse, NY",
+          phone: "(239) 555-0110",
+          hours: "Mon-Sat: 8AM-8PM",
+        },
+      ],
+      mapEmbedUrl: "https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d2915.5474545454545!2d-76.147!3d43.0481!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x0%3A0x0!2zNDPCsDAyJzUzLjIiTiA3NsKwMDgnNDkuMiJX!5e0!3m2!1sen!2sus!4v1234567890",
+      faqTitle: "Need Quick Answers?",
+      faqSubtitle: "Check out our FAQ page for instant answers to common questions about our services, pricing, and more.",
+      faqButtonText: "Visit FAQ Section",
+    };
+
+    res.status(200).json({
+      status: "success",
+      data: setting ? setting.value : defaults,
+    });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// POST /public/contact-message - Submit contact form message
+export const SubmitContactMessage = async (req, res) => {
+  try {
+    const { name, email, phone, subject, message } = req.body;
+    
+    if (!name || !email || !message) {
+      return res.status(400).json({ status: "fail", message: "Name, email, and message are required" });
+    }
+
+    // Store in a ContactMessage collection (create if not exists)
+    const mongoose = (await import("mongoose")).default;
+    
+    // Define schema inline if model doesn't exist
+    let ContactMessage;
+    try {
+      ContactMessage = mongoose.model("ContactMessage");
+    } catch {
+      const schema = new mongoose.Schema({
+        name: String,
+        email: String,
+        phone: String,
+        subject: String,
+        message: String,
+        status: { type: String, default: "unread", enum: ["unread", "read", "replied"] },
+      }, { timestamps: true });
+      ContactMessage = mongoose.model("ContactMessage", schema);
+    }
+
+    const msg = await ContactMessage.create({ name, email, phone, subject, message });
+    
+    res.status(201).json({
+      status: "success",
+      message: "Message sent successfully! We'll get back to you soon.",
+      data: msg,
+    });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};

@@ -1,10 +1,13 @@
 import Order from "../model/order.model.js";
+import User from "../model/user.model.js";
 import Coupon from "../model/coupon.model.js";
+
+const formatDate = () => new Date().toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
 
 export const CreateOrderService = async (req) => {
   try {
     const userId = req.headers.user_id;
-    const { items, address, notes, couponCode, paymentMethod } = req.body;
+    const { items, address, notes, couponCode, paymentMethod, latitude, longitude, billingInfo, shippingInfo, schedule, deliveryType, deliverySpeedCharge } = req.body;
     if (!items || items.length === 0) return { status: "failed", message: "Items are required" };
 
     let subtotal = items.reduce((acc, item) => acc + item.subtotal, 0);
@@ -21,22 +24,37 @@ export const CreateOrderService = async (req) => {
       }
     }
 
-    const totalPayment = subtotal - discount;
+    const speedCharge = deliverySpeedCharge || 0;
+    const totalPayment = subtotal - discount + speedCharge;
     const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
     const itemsSummary = items.map(i => `${i.quantity} ${i.serviceName}`).join(", ");
-    const deliveryDate = new Date();
-    deliveryDate.setDate(deliveryDate.getDate() + 5);
+    let deliveryDate;
+    if (schedule && schedule.deliveryDate) {
+      deliveryDate = new Date(schedule.deliveryDate + "T00:00:00");
+    } else {
+      deliveryDate = new Date();
+      deliveryDate.setDate(deliveryDate.getDate() + 5);
+    }
 
     const order = await Order.create({
       user: userId, items, itemCount, itemsSummary,
       subtotal, discount, totalPayment, couponCode: couponCode || null,
       paymentMethod: paymentMethod || "card", paymentStatus: "paid",
       deliveryDate, address: address || "", notes: notes || "",
+      billingInfo: billingInfo || {},
+      shippingInfo: shippingInfo || {},
+      schedule: schedule || {},
+      deliveryType: deliveryType || "standard",
+      deliverySpeedCharge: speedCharge,
+      customerLocation: latitude && longitude ? { type: "Point", coordinates: [longitude, latitude] } : undefined,
       trackingSteps: [
-        { title: "Order Confirmed", date: new Date().toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }), status: "completed" },
+        { title: "Order Confirmed", date: formatDate(), status: "completed" },
+        { title: "Pickup Assigned", status: "pending" },
         { title: "Picked Up", status: "pending" },
-        { title: "In Process", status: "pending" },
-        { title: "Shipped", status: "pending" },
+        { title: "At Warehouse", status: "pending" },
+        { title: "Cleaning In Progress", status: "pending" },
+        { title: "Cleaned & Ready", status: "pending" },
+        { title: "Out for Delivery", status: "pending" },
         { title: "Delivered", status: "pending" },
       ],
       status: "confirmed",
@@ -71,7 +89,10 @@ export const GetOrderByIdService = async (req) => {
   try {
     const userId = req.headers.user_id;
     const { id } = req.params;
-    const order = await Order.findOne({ _id: id, user: userId });
+    const order = await Order.findOne({ _id: id, user: userId })
+      .populate("pickupDeliveryBoy", "name phone")
+      .populate("assignedStaff", "name")
+      .populate("deliveryBoy", "name phone");
     if (!order) return { status: "failed", message: "Order not found" };
     return { status: "success", data: order };
   } catch (e) {
@@ -85,10 +106,10 @@ export const CancelOrderService = async (req) => {
     const { id } = req.params;
     const order = await Order.findOne({ _id: id, user: userId });
     if (!order) return { status: "failed", message: "Order not found" };
-    if (["delivered", "cancelled"].includes(order.status)) return { status: "failed", message: "Cannot cancel this order" };
+    if (["delivered", "cancelled", "in_process", "cleaned"].includes(order.status)) return { status: "failed", message: "Cannot cancel this order" };
 
     order.status = "cancelled";
-    order.trackingSteps = order.trackingSteps.map((step, i) => {
+    order.trackingSteps = order.trackingSteps.map((step) => {
       if (step.status === "completed") return step;
       return { ...step.toObject(), status: "cancelled", date: "-" };
     });
@@ -118,13 +139,21 @@ export const GetDashboardStatsService = async (req) => {
   }
 };
 
-// Admin
+// ====== ADMIN ======
+
 export const AdminGetAllOrdersService = async (req) => {
   try {
     const { status, page = 1, limit = 20 } = req.query;
     const filter = {};
     if (status && status !== "all") filter.status = status;
-    const orders = await Order.find(filter).populate("user", "name email phone").sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const orders = await Order.find(filter)
+      .populate("user", "name email phone")
+      .populate("pickupDeliveryBoy", "name phone")
+      .populate("assignedStaff", "name phone")
+      .populate("deliveryBoy", "name phone")
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
     const total = await Order.countDocuments(filter);
     return { status: "success", data: { orders, total, page: parseInt(page), totalPages: Math.ceil(total / limit) } };
   } catch (e) {
@@ -135,27 +164,170 @@ export const AdminGetAllOrdersService = async (req) => {
 export const AdminUpdateOrderStatusService = async (req) => {
   try {
     const { id } = req.params;
-    const { status: newStatus } = req.body;
+    const { status: newStatus, pickupCharge, deliveryCharge } = req.body;
     const order = await Order.findById(id);
     if (!order) return { status: "failed", message: "Order not found" };
 
-    const statusFlow = ["confirmed", "picked_up", "in_process", "ready", "out_for_delivery", "delivered"];
-    const stepMap = { confirmed: 0, picked_up: 1, in_process: 2, ready: 2, out_for_delivery: 3, delivered: 4 };
-
     order.status = newStatus;
-    if (stepMap[newStatus] !== undefined) {
+    if (pickupCharge !== undefined) order.pickupCharge = pickupCharge;
+    if (deliveryCharge !== undefined) order.deliveryCharge = deliveryCharge;
+
+    const statusToStep = {
+      confirmed: 0, pickup_assigned: 1, picked_up: 2, at_warehouse: 3,
+      in_process: 4, cleaned: 5, delivery_assigned: 5, ready: 5,
+      out_for_delivery: 6, delivered: 7,
+    };
+
+    const stepIdx = statusToStep[newStatus];
+    if (stepIdx !== undefined) {
       order.trackingSteps = order.trackingSteps.map((step, i) => {
-        if (i < stepMap[newStatus]) return { ...step.toObject(), status: "completed", date: step.date === "Pending" ? new Date().toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : step.date };
-        if (i === stepMap[newStatus]) return { ...step.toObject(), status: "current", date: new Date().toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) };
+        if (i < stepIdx) return { ...step.toObject(), status: "completed", date: step.date === "Pending" ? formatDate() : step.date };
+        if (i === stepIdx) return { ...step.toObject(), status: "current", date: formatDate() };
         return { ...step.toObject(), status: "pending" };
       });
     }
     if (newStatus === "delivered") {
-      order.trackingSteps = order.trackingSteps.map(step => ({ ...step.toObject(), status: "completed", date: step.date === "Pending" ? new Date().toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" }) : step.date }));
+      order.trackingSteps = order.trackingSteps.map(step => ({ ...step.toObject(), status: "completed", date: step.date === "Pending" ? formatDate() : step.date }));
     }
 
     await order.save();
     return { status: "success", message: "Order status updated", data: order };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin assign pickup delivery boy
+export const AdminAssignPickupService = async (req) => {
+  try {
+    const { id } = req.params;
+    const { deliveryBoyId, pickupCharge } = req.body;
+    
+    const order = await Order.findById(id);
+    if (!order) return { status: "failed", message: "Order not found" };
+    
+    const deliveryBoy = await User.findOne({ _id: deliveryBoyId, role: "delivery" });
+    if (!deliveryBoy) return { status: "failed", message: "Delivery boy not found" };
+    
+    order.pickupDeliveryBoy = deliveryBoyId;
+    order.pickupAssignedAt = new Date();
+    order.status = "pickup_assigned";
+    if (pickupCharge) order.pickupCharge = pickupCharge;
+    
+    order.trackingSteps = order.trackingSteps.map((step, i) => {
+      if (i === 0) return { ...step.toObject(), status: "completed", date: step.date === "Pending" ? formatDate() : step.date };
+      if (i === 1) return { ...step.toObject(), status: "current", date: formatDate() };
+      return step.toObject();
+    });
+    
+    await order.save();
+    return { status: "success", message: "Pickup delivery boy assigned", data: order };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin assign staff for cleaning
+export const AdminAssignStaffService = async (req) => {
+  try {
+    const { id } = req.params;
+    const { staffId } = req.body;
+    
+    const order = await Order.findById(id);
+    if (!order) return { status: "failed", message: "Order not found" };
+    
+    const staff = await User.findOne({ _id: staffId, role: "staff" });
+    if (!staff) return { status: "failed", message: "Staff not found" };
+    
+    order.assignedStaff = staffId;
+    order.staffAssignedAt = new Date();
+    
+    await order.save();
+    return { status: "success", message: "Staff assigned for cleaning", data: order };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin assign delivery boy for final delivery
+export const AdminAssignDeliveryService = async (req) => {
+  try {
+    const { id } = req.params;
+    const { deliveryBoyId, deliveryCharge } = req.body;
+    
+    const order = await Order.findById(id);
+    if (!order) return { status: "failed", message: "Order not found" };
+    if (!["cleaned", "ready"].includes(order.status)) return { status: "failed", message: "Order is not ready for delivery" };
+    
+    const deliveryBoy = await User.findOne({ _id: deliveryBoyId, role: "delivery" });
+    if (!deliveryBoy) return { status: "failed", message: "Delivery boy not found" };
+    
+    order.deliveryBoy = deliveryBoyId;
+    order.deliveryAssignedAt = new Date();
+    order.status = "delivery_assigned";
+    if (deliveryCharge) order.deliveryCharge = deliveryCharge;
+    
+    const stepCount = order.trackingSteps.length;
+    order.trackingSteps = order.trackingSteps.map((step, i) => {
+      if (i < stepCount - 3) return { ...step.toObject(), status: "completed", date: step.date === "Pending" ? formatDate() : step.date };
+      if (i === stepCount - 3) return { ...step.toObject(), status: "current", date: formatDate() };
+      return step.toObject();
+    });
+    
+    await order.save();
+    return { status: "success", message: "Delivery boy assigned", data: order };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin get nearby delivery boys
+export const AdminGetNearbyDeliveryBoysService = async (req) => {
+  try {
+    const { latitude, longitude, maxDistance = 10000 } = req.query;
+    
+    let filter = { role: "delivery", isAvailable: true, isBlocked: { $ne: true } };
+    
+    if (latitude && longitude) {
+      filter.currentLocation = {
+        $near: {
+          $geometry: { type: "Point", coordinates: [parseFloat(longitude), parseFloat(latitude)] },
+          $maxDistance: parseInt(maxDistance),
+        },
+      };
+    }
+    
+    const deliveryBoys = await User.find(filter).select("name phone email profileImage currentLocation isAvailable totalEarnings");
+    return { status: "success", data: deliveryBoys };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin get all staff
+export const AdminGetStaffListService = async (req) => {
+  try {
+    const staff = await User.find({ role: "staff", isBlocked: { $ne: true } })
+      .select("name phone email profileImage");
+    return { status: "success", data: staff };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+// Admin settle delivery boy earnings
+export const AdminSettleEarningsService = async (req) => {
+  try {
+    const { deliveryBoyId } = req.params;
+    const user = await User.findOne({ _id: deliveryBoyId, role: "delivery" });
+    if (!user) return { status: "failed", message: "Delivery boy not found" };
+    
+    const pending = user.pendingEarnings || 0;
+    user.totalEarnings = (user.totalEarnings || 0) + pending;
+    user.pendingEarnings = 0;
+    await user.save();
+    
+    return { status: "success", message: `Settled ৳${pending} for ${user.name}`, data: user };
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }
@@ -170,6 +342,9 @@ export const AdminGetDashboardStatsService = async () => {
     const pendingOrders = await Order.countDocuments({ status: { $nin: ["delivered", "cancelled"] } });
     const completedOrders = await Order.countDocuments({ status: "delivered" });
     const cancelledOrders = await Order.countDocuments({ status: "cancelled" });
+    const totalDeliveryBoys = await User.countDocuments({ role: "delivery" });
+    const totalStaff = await User.countDocuments({ role: "staff" });
+    const totalCustomers = await User.countDocuments({ role: "user" });
     const recentOrders = await Order.find().populate("user", "name email").sort({ createdAt: -1 }).limit(5);
 
     return {
@@ -177,7 +352,9 @@ export const AdminGetDashboardStatsService = async () => {
       data: {
         totalOrders, todaysOrders,
         totalRevenue: totalRevenue[0]?.total || 0,
-        pendingOrders, completedOrders, cancelledOrders, recentOrders,
+        pendingOrders, completedOrders, cancelledOrders,
+        totalDeliveryBoys, totalStaff, totalCustomers,
+        recentOrders,
       },
     };
   } catch (e) {

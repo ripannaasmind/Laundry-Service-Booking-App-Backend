@@ -16,20 +16,20 @@ const userSchema = new mongoose.Schema(
     },
     phone: {
       type: String,
-      required: false, // Not required for Google login users
+      required: false,
       trim: true,
-      default: undefined, // Use undefined instead of null for sparse index
+      default: undefined,
     },
     password: {
       type: String,
-      required: false, // Not required for Google login users
+      required: false,
       minlength: 6,
       default: null,
     },
     googleId: {
       type: String,
       default: null,
-      sparse: true, // Allows multiple null values but unique when set
+      sparse: true,
     },
     isVerified: {
       type: Boolean,
@@ -41,12 +41,42 @@ const userSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "admin", "delivery", "staff"],
       default: "user",
     },
     isBlocked: {
       type: Boolean,
       default: false,
+    },
+    // Delivery boy specific fields
+    isAvailable: {
+      type: Boolean,
+      default: true,
+    },
+    currentLocation: {
+      type: {
+        type: String,
+        enum: ["Point"],
+        default: "Point",
+      },
+      coordinates: {
+        type: [Number], // [longitude, latitude]
+        default: [90.4125, 23.8103], // Default Dhaka
+      },
+    },
+    assignedStore: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Store",
+      default: null,
+    },
+    // Earnings tracking for delivery boys
+    totalEarnings: {
+      type: Number,
+      default: 0,
+    },
+    pendingEarnings: {
+      type: Number,
+      default: 0,
     },
   },
   {
@@ -61,16 +91,18 @@ userSchema.pre('save', function() {
     throw new Error('Either password or Google authentication is required');
   }
   
-  // Convert empty phone string to undefined for sparse index
   if (this.phone === '' || this.phone === null) {
     this.phone = undefined;
   }
 });
 
-// Create unique sparse index for phone (allows multiple undefined/null values)
+// 2dsphere index for delivery boy location queries
+userSchema.index({ currentLocation: "2dsphere" });
+
+// Create unique sparse index for phone
 userSchema.index({ phone: 1 }, { 
   unique: true, 
-  sparse: true // Sparse index ignores documents without the field
+  sparse: true 
 });
 
 const User = mongoose.model("User", userSchema);
