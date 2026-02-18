@@ -1,3 +1,7 @@
+import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
+import multer from "multer";
+
 import User from "../model/user.model.js";
 import Order from "../model/order.model.js";
 import Settings from "../model/settings.model.js";
@@ -442,6 +446,266 @@ export const SubmitContactMessage = async (req, res) => {
       message: "Message sent successfully! We'll get back to you soon.",
       data: msg,
     });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// ========== PUBLIC SITE SETTINGS (Footer, Logo, etc.) ==========
+
+// GET /public/site-settings - Get site settings for footer/header (no auth)
+export const GetPublicSiteSettings = async (req, res) => {
+  try {
+    const settings = await Settings.find({});
+    const settingsObj = {};
+    settings.forEach((s) => {
+      settingsObj[s.key] = s.value;
+    });
+
+    // Return only public-safe fields with defaults
+    const result = {
+      siteName: settingsObj.siteName || 'Ultra Wash',
+      tagline: settingsObj.tagline || 'Premium Laundry & Dry Cleaning',
+      email: settingsObj.email || 'support@ultrawash.com',
+      phone: settingsObj.phone || '+1 234 567 8900',
+      address: settingsObj.address || '123 Main Street, New York, NY 10001',
+      currency: settingsObj.currency || 'USD',
+      currencySymbol: settingsObj.currencySymbol || '$',
+      // Footer specific
+      footerLogo: settingsObj.footerLogo || '',
+      footerDescription: settingsObj.footerDescription || 'Your clothes deserve the best—trust Ultra Wash for professional care, eco-friendly solutions, and a spotless finish.',
+      copyrightText: settingsObj.copyrightText || '© {year} Ultra Wash. All Rights Reserved.',
+      facebookUrl: settingsObj.facebookUrl || '',
+      twitterUrl: settingsObj.twitterUrl || '',
+      instagramUrl: settingsObj.instagramUrl || '',
+      linkedinUrl: settingsObj.linkedinUrl || '',
+      youtubeUrl: settingsObj.youtubeUrl || '',
+      playStoreUrl: settingsObj.playStoreUrl || '',
+      appStoreUrl: settingsObj.appStoreUrl || '',
+      // Header specific
+      headerLogo: settingsObj.headerLogo || '',
+      // Payment settings (public)
+      codEnabled: settingsObj.codEnabled !== undefined ? settingsObj.codEnabled : true,
+      stripeEnabled: settingsObj.stripeEnabled !== undefined ? settingsObj.stripeEnabled : true,
+      paypalEnabled: settingsObj.paypalEnabled !== undefined ? settingsObj.paypalEnabled : true,
+      walletEnabled: settingsObj.walletEnabled !== undefined ? settingsObj.walletEnabled : true,
+      paystackEnabled: settingsObj.paystackEnabled !== undefined ? settingsObj.paystackEnabled : true,
+      // Footer quick links (dynamic)
+      footerQuickLinks: settingsObj.footerQuickLinks || [],
+      // Social media & app download links (dynamic)
+      socialMediaLinks: settingsObj.socialMediaLinks || [],
+      appDownloadLinks: settingsObj.appDownloadLinks || [],
+    };
+
+    res.status(200).json({ status: "success", data: result });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// ========== ADMIN CREATE USER (Staff/Delivery) ==========
+
+// POST /admin/users - Create new user (delivery boy, staff, etc.)
+export const AdminCreateUser = async (req, res) => {
+  try {
+    const { name, email, phone, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({ status: "fail", message: "Name, email, and password are required" });
+    }
+
+    const validRoles = ["user", "delivery", "staff", "admin"];
+    if (role && !validRoles.includes(role)) {
+      return res.status(400).json({ status: "fail", message: "Invalid role" });
+    }
+
+    // Check if user already exists
+    const existing = await User.findOne({ email: email.toLowerCase() });
+    if (existing) {
+      return res.status(400).json({ status: "fail", message: "Email already registered" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const newUser = await User.create({
+      name,
+      email: email.toLowerCase(),
+      phone: phone || undefined,
+      password: hashedPassword,
+      role: role || "user",
+      isVerified: true,
+    });
+
+    res.status(201).json({
+      status: "success",
+      message: "User created successfully",
+      data: {
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        phone: newUser.phone,
+        role: newUser.role,
+      },
+    });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// ========== NOTIFICATIONS ==========
+
+// Notification schema (inline)
+let Notification;
+try {
+  Notification = mongoose.model("Notification");
+} catch {
+  const notifSchema = new mongoose.Schema({
+    user: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
+    role: { type: String, enum: ["admin", "user", "delivery", "staff", "all"], default: "admin" },
+    type: { type: String, enum: ["order", "payment", "delivery", "system", "review", "ticket"], default: "system" },
+    title: { type: String, required: true },
+    message: { type: String, required: true },
+    orderId: { type: String, default: null },
+    isRead: { type: Boolean, default: false },
+    metadata: { type: mongoose.Schema.Types.Mixed, default: {} },
+  }, { timestamps: true });
+  notifSchema.index({ role: 1, isRead: 1, createdAt: -1 });
+  notifSchema.index({ user: 1, isRead: 1, createdAt: -1 });
+  Notification = mongoose.model("Notification", notifSchema);
+}
+
+// Helper to create notification
+export const createNotification = async ({ user, role, type, title, message, orderId, metadata }) => {
+  try {
+    await Notification.create({ user, role: role || "admin", type: type || "system", title, message, orderId, metadata });
+  } catch (e) {
+    console.error("Failed to create notification:", e.message);
+  }
+};
+
+// GET /admin/notifications - Get admin notifications
+export const AdminGetNotifications = async (req, res) => {
+  try {
+    const { page = 1, limit = 30, unreadOnly } = req.query;
+    const query = { role: { $in: ["admin", "all"] } };
+    if (unreadOnly === "true") query.isRead = false;
+
+    const total = await Notification.countDocuments(query);
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+
+    const unreadCount = await Notification.countDocuments({ role: { $in: ["admin", "all"] }, isRead: false });
+
+    res.status(200).json({
+      status: "success",
+      data: { notifications, unreadCount, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// PUT /admin/notifications/:id/read - Mark notification as read
+export const AdminMarkNotificationRead = async (req, res) => {
+  try {
+    const { id } = req.params;
+    if (id === "all") {
+      await Notification.updateMany({ role: { $in: ["admin", "all"] }, isRead: false }, { isRead: true });
+    } else {
+      await Notification.findByIdAndUpdate(id, { isRead: true });
+    }
+    res.status(200).json({ status: "success", message: "Marked as read" });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// GET /notifications - Get user notifications
+export const GetUserNotifications = async (req, res) => {
+  try {
+    const userId = req.headers.user_id;
+    const { page = 1, limit = 30 } = req.query;
+    const query = { $or: [{ user: userId }, { role: "all" }] };
+
+    const total = await Notification.countDocuments(query);
+    const notifications = await Notification.find(query)
+      .sort({ createdAt: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit));
+
+    const unreadCount = await Notification.countDocuments({ ...query, isRead: false });
+
+    res.status(200).json({
+      status: "success",
+      data: { notifications, unreadCount, total, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// PUT /notifications/:id/read - Mark user notification as read
+export const MarkUserNotificationRead = async (req, res) => {
+  try {
+    const userId = req.headers.user_id;
+    const { id } = req.params;
+    if (id === "all") {
+      await Notification.updateMany({ $or: [{ user: userId }, { role: "all" }], isRead: false }, { isRead: true });
+    } else {
+      await Notification.findByIdAndUpdate(id, { isRead: true });
+    }
+    res.status(200).json({ status: "success", message: "Marked as read" });
+  } catch (err) {
+    res.status(500).json({ status: "fail", message: err.message });
+  }
+};
+
+// ========== IMGBB UPLOAD ==========
+
+
+const memoryStorage = multer.memoryStorage();
+const imgbbFileFilter = (req, file, cb) => {
+  const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+  cb(null, allowed.includes(file.mimetype));
+};
+export const imgbbUpload = multer({ storage: memoryStorage, fileFilter: imgbbFileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+// POST /upload/imgbb - Upload image to ImgBB
+export const UploadToImgBB = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ status: "fail", message: "No file uploaded" });
+
+    // Get ImgBB API key from settings or use default demo key
+    const settingsDoc = await Settings.findOne({ key: "imgbbApiKey" });
+    const apiKey = settingsDoc?.value || "6d207e02198a847aa98d0a2a901485a5"; // demo key
+
+    const base64Image = req.file.buffer.toString("base64");
+
+    const formData = new URLSearchParams();
+    formData.append("key", apiKey);
+    formData.append("image", base64Image);
+    formData.append("name", req.file.originalname || "upload");
+
+    const response = await fetch("https://api.imgbb.com/1/upload", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      res.status(200).json({
+        status: "success",
+        data: {
+          url: data.data.display_url,
+          deleteUrl: data.data.delete_url,
+          thumbnail: data.data.thumb?.url || data.data.display_url,
+        },
+      });
+    } else {
+      res.status(400).json({ status: "fail", message: "Failed to upload to ImgBB" });
+    }
   } catch (err) {
     res.status(500).json({ status: "fail", message: err.message });
   }

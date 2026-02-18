@@ -18,13 +18,22 @@ export const GetActiveCouponsService = async () => {
 export const ValidateCouponService = async (req) => {
   try {
     const { code, orderTotal } = req.body;
+    const userId = req.headers.user_id;
     if (!code) return { status: "failed", message: "Coupon code is required" };
 
     const coupon = await Coupon.findOne({ code: code.toUpperCase(), isActive: true });
     if (!coupon) return { status: "failed", message: "Invalid coupon code" };
     if (coupon.expiryDate < new Date()) return { status: "failed", message: "Coupon has expired" };
-    if (coupon.usedCount >= coupon.usageLimit) return { status: "failed", message: "Coupon usage limit reached" };
+    if (coupon.usageLimit && coupon.usedCount >= coupon.usageLimit) return { status: "failed", message: "Coupon usage limit reached" };
     if (orderTotal && orderTotal < coupon.minOrderValue) return { status: "failed", message: `Minimum order value is $${coupon.minOrderValue}` };
+
+    // Check per-user limit
+    if (coupon.perUserLimit && userId) {
+      const userUsage = coupon.usedBy?.find(u => u.userId?.toString() === userId);
+      if (userUsage && userUsage.count >= coupon.perUserLimit) {
+        return { status: "failed", message: "You have already used this coupon the maximum number of times" };
+      }
+    }
 
     const discount = coupon.discountType === "percentage"
       ? Math.min((orderTotal || 0) * coupon.discountValue / 100, coupon.maxDiscount || Infinity)

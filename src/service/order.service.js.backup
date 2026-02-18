@@ -16,34 +16,12 @@ export const CreateOrderService = async (req) => {
 
     if (couponCode) {
       const coupon = await Coupon.findOne({ code: couponCode.toUpperCase(), isActive: true, expiryDate: { $gt: new Date() } });
-      if (coupon && subtotal >= coupon.minOrderValue && (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit)) {
-        // Check per-user limit
-        if (coupon.perUserLimit && userId) {
-          const userUsage = coupon.usedBy?.find(u => u.userId?.toString() === userId);
-          if (userUsage && userUsage.count >= coupon.perUserLimit) {
-            // User exceeded their per-user limit, skip discount
-          } else {
-            discount = coupon.discountType === "percentage"
-              ? Math.min(subtotal * coupon.discountValue / 100, coupon.maxDiscount || Infinity)
-              : coupon.discountValue;
-            coupon.usedCount += 1;
-            const existingUser = coupon.usedBy?.find(u => u.userId?.toString() === userId);
-            if (existingUser) { existingUser.count += 1; }
-            else { coupon.usedBy = [...(coupon.usedBy || []), { userId, count: 1 }]; }
-            await coupon.save();
-          }
-        } else {
-          discount = coupon.discountType === "percentage"
-            ? Math.min(subtotal * coupon.discountValue / 100, coupon.maxDiscount || Infinity)
-            : coupon.discountValue;
-          coupon.usedCount += 1;
-          if (userId) {
-            const existingUser = coupon.usedBy?.find(u => u.userId?.toString() === userId);
-            if (existingUser) { existingUser.count += 1; }
-            else { coupon.usedBy = [...(coupon.usedBy || []), { userId, count: 1 }]; }
-          }
-          await coupon.save();
-        }
+      if (coupon && subtotal >= coupon.minOrderValue && coupon.usedCount < coupon.usageLimit) {
+        discount = coupon.discountType === "percentage"
+          ? Math.min(subtotal * coupon.discountValue / 100, coupon.maxDiscount || Infinity)
+          : coupon.discountValue;
+        coupon.usedCount += 1;
+        await coupon.save();
       }
     }
 
@@ -192,33 +170,6 @@ export const AdminGetAllOrdersService = async (req) => {
   }
 };
 
-export const AdminGetOrderByIdService = async (req) => {
-  try {
-    const { id } = req.params;
-    // Try to find by MongoDB _id first, then by orderId if that fails
-    let order = await Order.findById(id)
-      .populate("user", "name email phone address")
-      .populate("pickupDeliveryBoy", "name phone")
-      .populate("assignedStaff", "name phone")
-      .populate("deliveryBoy", "name phone")
-      .catch(() => null);
-    
-    // If not found by _id, try searching by orderId field
-    if (!order) {
-      order = await Order.findOne({ orderId: id })
-        .populate("user", "name email phone address")
-        .populate("pickupDeliveryBoy", "name phone")
-        .populate("assignedStaff", "name phone")
-        .populate("deliveryBoy", "name phone");
-    }
-    
-    if (!order) return { status: "failed", message: "Order not found" };
-    return { status: "success", data: order };
-  } catch (e) {
-    return { status: "failed", message: e.toString() };
-  }
-};
-
 export const AdminUpdateOrderStatusService = async (req) => {
   try {
     const { id } = req.params;
@@ -352,8 +303,7 @@ export const AdminGetNearbyDeliveryBoysService = async (req) => {
   try {
     const { latitude, longitude, maxDistance = 10000 } = req.query;
     
-    // Admin page needs ALL delivery boys (available + offline) for management
-    let filter = { role: "delivery", isBlocked: { $ne: true } };
+    let filter = { role: "delivery", isAvailable: true, isBlocked: { $ne: true } };
     
     if (latitude && longitude) {
       filter.currentLocation = {
@@ -364,7 +314,7 @@ export const AdminGetNearbyDeliveryBoysService = async (req) => {
       };
     }
     
-    const deliveryBoys = await User.find(filter).select("name phone email profileImage isAvailable totalEarnings pendingEarnings");
+    const deliveryBoys = await User.find(filter).select("name phone email profileImage currentLocation isAvailable totalEarnings");
     return { status: "success", data: deliveryBoys };
   } catch (e) {
     return { status: "failed", message: e.toString() };

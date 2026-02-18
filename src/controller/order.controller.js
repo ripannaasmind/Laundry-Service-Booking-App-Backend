@@ -1,7 +1,7 @@
 import {
   CreateOrderService, GetMyOrdersService, GetOrderByIdService,
   CancelOrderService, GetDashboardStatsService,
-  AdminGetAllOrdersService, AdminUpdateOrderStatusService, AdminGetDashboardStatsService,
+  AdminGetAllOrdersService, AdminGetOrderByIdService, AdminUpdateOrderStatusService, AdminGetDashboardStatsService,
   AdminAssignPickupService, AdminAssignStaffService, AdminAssignDeliveryService,
   AdminGetNearbyDeliveryBoysService, AdminGetStaffListService, AdminSettleEarningsService,
 } from "../service/order.service.js";
@@ -20,6 +20,7 @@ export const GetDashboardStats = handler(GetDashboardStatsService);
 
 // Admin
 export const AdminGetAllOrders = handler(AdminGetAllOrdersService);
+export const AdminGetOrderById = handler(AdminGetOrderByIdService);
 export const AdminUpdateOrderStatus = handler(AdminUpdateOrderStatusService);
 export const AdminGetDashboardStats = async (req, res) => {
   const result = await AdminGetDashboardStatsService();

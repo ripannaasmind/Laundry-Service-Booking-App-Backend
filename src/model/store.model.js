@@ -78,6 +78,9 @@ const storeSchema = new mongoose.Schema(
     isFeatured: { type: Boolean, default: false },
     sortOrder: { type: Number, default: 0 },
     
+    // Timezone (IANA timezone string)
+    timezone: { type: String, default: "Asia/Dhaka" },
+
     // Manager/Owner
     manager: { type: mongoose.Schema.Types.ObjectId, ref: "User", default: null },
   },
@@ -90,13 +93,29 @@ storeSchema.index({ location: "2dsphere" });
 // Text index for search
 storeSchema.index({ name: "text", address: "text", area: "text", city: "text" });
 
-// Virtual: check if store is currently open
+// Virtual: check if store is currently open (timezone-aware)
 storeSchema.virtual("isOpen").get(function () {
   const days = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+  const tz = this.timezone || "Asia/Dhaka";
+  
+  // Get current time in store's timezone
   const now = new Date();
-  const currentDay = days[now.getDay()];
-  const currentTime = now.toTimeString().slice(0, 5); // "HH:MM"
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz,
+    weekday: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  
+  const parts = formatter.formatToParts(now);
+  const weekday = parts.find(p => p.type === "weekday")?.value?.toLowerCase() || "";
+  const hour = parts.find(p => p.type === "hour")?.value || "00";
+  const minute = parts.find(p => p.type === "minute")?.value || "00";
+  const currentTime = `${hour.padStart(2, "0")}:${minute.padStart(2, "0")}`;
 
+  const currentDay = days.includes(weekday) ? weekday : days[now.getDay()];
+  
   const todayHours = this.operatingHours?.find((h) => h.day === currentDay);
   if (!todayHours || todayHours.isClosed) return false;
 

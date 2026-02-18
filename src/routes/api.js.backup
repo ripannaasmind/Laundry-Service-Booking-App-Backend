@@ -20,7 +20,7 @@ import {
 // Order Controllers
 import {
   CreateOrder, GetMyOrders, GetOrderById, CancelOrder, GetDashboardStats,
-  AdminGetAllOrders, AdminGetOrderById, AdminUpdateOrderStatus, AdminGetDashboardStats,
+  AdminGetAllOrders, AdminUpdateOrderStatus, AdminGetDashboardStats,
   AdminAssignPickup, AdminAssignStaff, AdminAssignDelivery,
   AdminGetNearbyDeliveryBoys, AdminGetStaffList, AdminSettleEarnings,
 } from "../controller/order.controller.js";
@@ -154,7 +154,6 @@ router.delete("/admin/services/:id", AuthVerification, AdminVerification, Delete
 
 // Admin - Orders
 router.get("/admin/orders", AuthVerification, AdminVerification, AdminGetAllOrders);
-router.get("/admin/orders/:id", AuthVerification, AdminVerification, AdminGetOrderById);
 router.put("/admin/orders/:id/status", AuthVerification, AdminVerification, AdminUpdateOrderStatus);
 router.put("/admin/orders/:id/assign-pickup", AuthVerification, AdminVerification, AdminAssignPickup);
 router.put("/admin/orders/:id/assign-staff", AuthVerification, AdminVerification, AdminAssignStaff);

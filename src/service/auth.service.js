@@ -7,6 +7,71 @@ import { SendOtpSms } from "../utils/smsHelper.js";
 import admin from "../config/firebase.js";
 import { parsePhoneNumber, getCountries } from 'libphonenumber-js';
 
+// DEV MODE: When email/SMS credentials are invalid, OTP is logged to console and returned in response
+const IS_DEV = process.env.NODE_ENV !== 'production';
+
+/**
+ * Send OTP via email or SMS with graceful fallback in dev mode
+ * If both email and SMS fail, returns the OTP in the response (dev only)
+ */
+const sendOtpNotification = async (user, otp, isEmail, emailOrPhone, purpose) => {
+  const purposeLabel = purpose === 'forgot_password' ? 'password reset' : 'login';
+  
+  // Try sending via the primary channel
+  if (isEmail) {
+    try {
+      const emailText = `Your ${purposeLabel} OTP is: ${otp}. Valid for 10 minutes.`;
+      const emailSubject = `${purposeLabel.charAt(0).toUpperCase() + purposeLabel.slice(1)} OTP - Ultra Wash`;
+      await EmailSend(emailOrPhone, emailText, emailSubject);
+      return { sent: true, channel: 'email', message: `OTP sent to your email` };
+    } catch (emailError) {
+      console.error('❌ Email sending failed:', emailError.message);
+    }
+  } else {
+    // Try SMS first
+    try {
+      await SendOtpSms(user.phone, otp);
+      return { sent: true, channel: 'sms', message: `OTP sent to your phone` };
+    } catch (smsError) {
+      console.log('⚠️ SMS failed, trying email fallback...');
+      
+      // Try email fallback
+      if (user.email) {
+        try {
+          const emailText = `Your ${purposeLabel} OTP is: ${otp}. Valid for 10 minutes.\n\nNote: SMS service is temporarily unavailable, so we sent this code via email.`;
+          const emailSubject = `${purposeLabel.charAt(0).toUpperCase() + purposeLabel.slice(1)} OTP - Ultra Wash`;
+          await EmailSend(user.email, emailText, emailSubject);
+          const maskedEmail = `${user.email.substring(0, 3)}***@${user.email.split('@')[1]}`;
+          return { sent: true, channel: 'email', message: `SMS unavailable. OTP sent to email: ${maskedEmail}` };
+        } catch (emailError) {
+          console.error('❌ Email fallback also failed:', emailError.message);
+        }
+      }
+    }
+  }
+  
+  // Both SMS and Email failed — DEV MODE fallback
+  if (IS_DEV) {
+    console.log('');
+    console.log('╔══════════════════════════════════════════════════╗');
+    console.log('║  🔧 DEV MODE — OTP DELIVERY SIMULATED           ║');
+    console.log(`║  📧 User: ${user.email || emailOrPhone}                   `);
+    console.log(`║  �� OTP:  ${otp}                               ║`);
+    console.log(`║  📋 Purpose: ${purpose}                         ║`);
+    console.log('║  ⏱️  Valid for: 10 minutes                       ║');
+    console.log('╚══════════════════════════════════════════════════╝');
+    console.log('');
+    return { 
+      sent: false, 
+      devMode: true, 
+      channel: 'console', 
+      message: `[Dev Mode] OTP: ${otp} — Email/SMS services unavailable. Check server console.`,
+      otp: otp 
+    };
+  }
+  
+  throw new Error('Failed to send OTP. Both email and SMS services are unavailable.');
+};
 /**
  * Normalize phone number to E.164 format
  * Tries multiple strategies to detect the correct country code
@@ -615,40 +680,19 @@ export const ForgotPasswordService = async (req) => {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000), // 10 minutes
     });
 
-    // Send OTP via email or SMS
-    if (isEmail) {
-      const emailText = `Your password reset OTP is: ${otp}. Valid for 10 minutes.`;
-      const emailSubject = "Password Reset OTP - Ultra Wash";
-      await EmailSend(emailOrPhone, emailText, emailSubject);
-    } else {
-      // Try to send OTP via SMS using the DB phone (always E.164)
-      try {
-        await SendOtpSms(user.phone, otp);
-      } catch (smsError) {
-        console.log('⚠️ SMS failed, checking for email fallback...');
-        
-        if (user.email) {
-          console.log(`📧 Sending OTP to email instead: ${user.email}`);
-          const emailText = `Your password reset OTP is: ${otp}. Valid for 10 minutes.\n\nNote: SMS service is temporarily unavailable, so we sent this code via email.`;
-          const emailSubject = "Password Reset OTP - Ultra Wash";
-          await EmailSend(user.email, emailText, emailSubject);
-          
-          return {
-            status: "success",
-            message: `SMS service unavailable. OTP sent to your registered email: ${user.email.substring(0, 3)}***@${user.email.split('@')[1]}`,
-            type: "email",
-          };
-        } else {
-          throw new Error('SMS service unavailable and no email on file.');
-        }
-      }
-    }
+    // Send OTP via email or SMS (with dev mode fallback)
+    const sendResult = await sendOtpNotification(user, otp, isEmail, emailOrPhone, "forgot_password");
 
-    return {
+    const response = {
       status: "success",
-      message: `OTP sent to your ${isEmail ? "email" : "phone"}`,
-      type: isEmail ? "email" : "phone",
+      message: sendResult.message,
+      type: sendResult.channel === 'sms' ? 'phone' : 'email',
     };
+    // In dev mode, include OTP in response for testing
+    if (sendResult.devMode) {
+      response.devOtp = otp;
+    }
+    return response;
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }
@@ -815,38 +859,18 @@ export const SendLoginOTPService = async (req) => {
       expiresAt: new Date(Date.now() + 10 * 60 * 1000),
     });
 
-    // Send OTP via email or SMS
-    if (isEmail) {
-      const emailText = `Your login OTP is: ${otp}. Valid for 10 minutes.`;
-      const emailSubject = "Login OTP - Ultra Wash";
-      await EmailSend(emailOrPhone, emailText, emailSubject);
-    } else {
-      // Try to send OTP via SMS using DB phone (always E.164)
-      try {
-        await SendOtpSms(user.phone, otp);
-      } catch (smsError) {
-        console.log('⚠️ SMS failed, checking for email fallback...');
-        
-        if (user.email) {
-          console.log(`📧 Sending OTP to email instead: ${user.email}`);
-          const emailText = `Your login OTP is: ${otp}. Valid for 10 minutes.\n\nNote: SMS service is temporarily unavailable, so we sent this code via email.`;
-          const emailSubject = "Login OTP - Ultra Wash";
-          await EmailSend(user.email, emailText, emailSubject);
-          
-          return {
-            status: "success",
-            message: `SMS service unavailable. OTP sent to your registered email: ${user.email.substring(0, 3)}***@${user.email.split('@')[1]}`,
-          };
-        } else {
-          throw new Error('SMS service unavailable and no email on file.');
-        }
-      }
-    }
+    // Send OTP via email or SMS (with dev mode fallback)
+    const sendResult = await sendOtpNotification(user, otp, isEmail, emailOrPhone, "login");
 
-    return {
+    const response = {
       status: "success",
-      message: `OTP sent to your ${isEmail ? "email" : "phone"}`,
+      message: sendResult.message,
     };
+    // In dev mode, include OTP in response for testing
+    if (sendResult.devMode) {
+      response.devOtp = otp;
+    }
+    return response;
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }
