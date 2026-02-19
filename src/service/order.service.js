@@ -8,7 +8,7 @@ const formatDate = () => new Date().toLocaleDateString("en-US", { day: "numeric"
 export const CreateOrderService = async (req) => {
   try {
     const userId = req.headers.user_id;
-    const { items, address, notes, couponCode, paymentMethod, latitude, longitude, billingInfo, shippingInfo, schedule, deliveryType, deliverySpeedCharge } = req.body;
+    const { items, address, notes, couponCode, paymentMethod, latitude, longitude, billingInfo, shippingInfo, schedule, deliveryType, deliverySpeedCharge, deliveryCharge: clientDeliveryCharge, subtotal: clientSubtotal, discount: clientDiscount, totalPayment: clientTotalPayment } = req.body;
     if (!items || items.length === 0) return { status: "failed", message: "Items are required" };
 
     let subtotal = items.reduce((acc, item) => acc + item.subtotal, 0);
@@ -48,7 +48,8 @@ export const CreateOrderService = async (req) => {
     }
 
     const speedCharge = deliverySpeedCharge || 0;
-    const totalPayment = subtotal - discount + speedCharge;
+    const baseDeliveryCharge = clientDeliveryCharge || 0;
+    const totalPayment = clientTotalPayment || (subtotal - discount + baseDeliveryCharge + speedCharge);
     const itemCount = items.reduce((acc, item) => acc + item.quantity, 0);
     const itemsSummary = items.map(i => `${i.quantity} ${i.serviceName}`).join(", ");
     let deliveryDate;
@@ -69,6 +70,7 @@ export const CreateOrderService = async (req) => {
       schedule: schedule || {},
       deliveryType: deliveryType || "standard",
       deliverySpeedCharge: speedCharge,
+      deliveryCharge: baseDeliveryCharge,
       customerLocation: latitude && longitude ? { type: "Point", coordinates: [longitude, latitude] } : undefined,
       trackingSteps: [
         { title: "Order Confirmed", date: formatDate(), status: "completed" },
