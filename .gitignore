@@ -23,7 +23,7 @@ Thumbs.db
 test-twilio.js
 
 # Firebase service account (sensitive)
-# src/config/flutter-22f32-firebase-adminsdk-*.json
+src/config/flutter-22f32-firebase-adminsdk-*.json
 
 # Documentation with credentials
 SMS-OTP-SETUP.md

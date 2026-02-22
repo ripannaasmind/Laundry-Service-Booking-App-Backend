@@ -1,12 +1,26 @@
 import admin from "firebase-admin";
-import { createRequire } from "module";
 
-const require = createRequire(import.meta.url);
-const serviceAccount = require("./flutter-22f32-firebase-adminsdk-rewfn-c03bd586b2.json");
+// Initialize Firebase Admin SDK using environment variables
+// Copy .env.example to .env and fill in your credentials
+try {
+  const projectId = process.env.FIREBASE_ADMIN_PROJECT_ID;
+  const clientEmail = process.env.FIREBASE_ADMIN_CLIENT_EMAIL;
+  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY;
 
-// Initialize Firebase Admin SDK
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
+  if (projectId && clientEmail && privateKey) {
+    admin.initializeApp({
+      credential: admin.credential.cert({
+        projectId,
+        clientEmail,
+        privateKey: privateKey.replace(/\\n/g, "\n"),
+      }),
+    });
+    console.log("✅ Firebase Admin SDK initialized");
+  } else {
+    console.warn("⚠️  Firebase Admin SDK not configured. Set FIREBASE_ADMIN_* vars in .env");
+  }
+} catch (error) {
+  console.error("❌ Firebase init failed:", error.message);
+}
 
 export default admin;
