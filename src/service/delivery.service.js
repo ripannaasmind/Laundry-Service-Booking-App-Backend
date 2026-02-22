@@ -210,9 +210,9 @@ export const DeliveryCompletedOrdersService = async (req) => {
       .populate("user", "name phone email")
       .sort({ deliveredAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
     
-    return { status: "success", data: { orders, total, page: parseInt(page), totalPages: Math.ceil(total / limit) } };
+    return { status: "success", data: { orders, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) } };
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }

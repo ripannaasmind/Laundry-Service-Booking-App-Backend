@@ -210,9 +210,9 @@ export const AdminGetAllOrdersService = async (req) => {
       .populate("deliveryBoy", "name phone")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
     const total = await Order.countDocuments(filter);
-    return { status: "success", data: { orders, total, page: parseInt(page), totalPages: Math.ceil(total / limit) } };
+    return { status: "success", data: { orders, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) } };
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }
@@ -393,7 +393,7 @@ export const AdminGetNearbyDeliveryBoysService = async (req) => {
       filter.currentLocation = {
         $near: {
           $geometry: { type: "Point", coordinates: [parseFloat(longitude), parseFloat(latitude)] },
-          $maxDistance: parseInt(maxDistance),
+          $maxDistance: parseInt(maxDistance, 10),
         },
       };
     }

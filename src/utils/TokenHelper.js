@@ -1,20 +1,19 @@
 
 import jwt from "jsonwebtoken";
 
-export const EncodeToken =(email,user_id)=>{
-  const KEY = process.env.JWT_SECRET;
-  const EXPIRE ={expiresIn:process.env.JWT_SECRET_EXPIRES_IN};
-  const PAYLOAD ={email,user_id}
+export const EncodeToken = (email, user_id) => {
+  const key = process.env.JWT_SECRET;
+  const expire = { expiresIn: process.env.JWT_SECRET_EXPIRES_IN };
+  const payload = { email, user_id };
 
-  return jwt.sign(PAYLOAD,KEY,EXPIRE);
-}
+  return jwt.sign(payload, key, expire);
+};
 
-export const DecodeToken =(token)=>{
-  try{
-    const KEY =process.env.JWT_SECRET;
-    return jwt.verify(token,KEY)
-
-  }catch(error){
-return null;
+export const DecodeToken = (token) => {
+  try {
+    const key = process.env.JWT_SECRET;
+    return jwt.verify(token, key);
+  } catch (error) {
+    return null;
   }
-}
+};

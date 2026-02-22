@@ -119,7 +119,7 @@ export const GetApprovedReviewsService = async (req) => {
       .populate("user", "name profileImage")
       .populate("store", "name slug area")
       .sort({ createdAt: -1 })
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
     return { status: "success", data: reviews };
   } catch (e) {
     return { status: "failed", message: e.toString() };
@@ -136,9 +136,9 @@ export const GetStoreReviewsService = async (req) => {
       .populate("user", "name profileImage")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
     const total = await Review.countDocuments(filter);
-    return { status: "success", data: { reviews, total, page: parseInt(page), totalPages: Math.ceil(total / limit) } };
+    return { status: "success", data: { reviews, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) } };
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }
@@ -157,14 +157,14 @@ export const AdminGetAllReviewsService = async (req) => {
       .populate("store", "name slug area")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
     const total = await Review.countDocuments(filter);
     const avgRating = await Review.aggregate([{ $match: { status: "approved" } }, { $group: { _id: null, avg: { $avg: "$rating" } } }]);
 
     return {
       status: "success",
       data: {
-        reviews, total, page: parseInt(page), totalPages: Math.ceil(total / limit),
+        reviews, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit),
         avgRating: avgRating[0]?.avg?.toFixed(1) || "0.0",
       },
     };

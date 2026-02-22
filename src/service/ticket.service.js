@@ -41,12 +41,12 @@ export const GetMyTicketsService = async (req) => {
       .populate("relatedOrder", "orderId totalPayment status")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
 
     const total = await Ticket.countDocuments(filter);
     return {
       status: "success",
-      data: { tickets, total, page: parseInt(page), totalPages: Math.ceil(total / limit) },
+      data: { tickets, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) },
     };
   } catch (e) {
     return { status: "failed", message: e.toString() };
@@ -108,12 +108,12 @@ export const StaffGetTicketsService = async (req) => {
       .populate("relatedOrder", "orderId totalPayment status")
       .sort({ priority: -1, createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
 
     const total = await Ticket.countDocuments(filter);
     return {
       status: "success",
-      data: { tickets, total, page: parseInt(page), totalPages: Math.ceil(total / limit) },
+      data: { tickets, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) },
     };
   } catch (e) {
     return { status: "failed", message: e.toString() };
@@ -175,7 +175,7 @@ export const AdminGetAllTicketsService = async (req) => {
       .populate("relatedOrder", "orderId totalPayment status")
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit));
+      .limit(parseInt(limit, 10));
 
     const total = await Ticket.countDocuments(filter);
 
@@ -196,7 +196,7 @@ export const AdminGetAllTicketsService = async (req) => {
       data: {
         tickets,
         total,
-        page: parseInt(page),
+        page: parseInt(page, 10),
         totalPages: Math.ceil(total / limit),
         stats: {
           open: statsMap.open || 0,

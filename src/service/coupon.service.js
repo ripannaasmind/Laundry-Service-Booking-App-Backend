@@ -60,9 +60,9 @@ export const AdminGetAllCouponsService = async (req) => {
     if (status === "active") { filter.isActive = true; filter.expiryDate = { $gt: new Date() }; }
     else if (status === "expired") { filter.$or = [{ isActive: false }, { expiryDate: { $lte: new Date() } }]; }
 
-    const coupons = await Coupon.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit));
+    const coupons = await Coupon.find(filter).sort({ createdAt: -1 }).skip((page - 1) * limit).limit(parseInt(limit, 10));
     const total = await Coupon.countDocuments(filter);
-    return { status: "success", data: { coupons, total, page: parseInt(page), totalPages: Math.ceil(total / limit) } };
+    return { status: "success", data: { coupons, total, page: parseInt(page, 10), totalPages: Math.ceil(total / limit) } };
   } catch (e) {
     return { status: "failed", message: e.toString() };
   }

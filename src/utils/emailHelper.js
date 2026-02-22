@@ -3,7 +3,7 @@ import nodemailer from "nodemailer";
 
 export const EmailSend = async (emailTo, emailText, emailSubject) => {
   try {
-    const port = parseInt(process.env.SMTP_PORT);
+    const port = parseInt(process.env.SMTP_PORT, 10);
     
     const transport = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
