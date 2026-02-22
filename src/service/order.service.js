@@ -93,6 +93,14 @@ export const CreateOrderService = async (req) => {
       orderId: order._id.toString(),
     });
 
+    // Create notification for user
+    createNotification({
+      user: userId, role: "user", type: "order",
+      title: "Order Placed Successfully",
+      message: `Your order #${order._id.toString().slice(-6).toUpperCase()} has been placed successfully. ${order.itemsSummary} - Total: $${order.totalPayment.toFixed(2)}`,
+      orderId: order._id.toString(),
+    });
+
     return { status: "success", message: "Order placed successfully", data: order };
   } catch (e) {
     return { status: "failed", message: e.toString() };
@@ -145,6 +153,22 @@ export const CancelOrderService = async (req) => {
     order.trackingSteps = order.trackingSteps.map((step) => {
       if (step.status === "completed") return step;
       return { ...step.toObject(), status: "cancelled", date: "-" };
+    });
+
+    // Notify user about cancellation
+    createNotification({
+      user: userId, role: "user", type: "order",
+      title: "Order Cancelled",
+      message: `Your order #${order._id.toString().slice(-6).toUpperCase()} has been cancelled.`,
+      orderId: order._id.toString(),
+    });
+
+    // Notify admin about cancellation
+    createNotification({
+      role: "admin", type: "order",
+      title: "Order Cancelled by Customer",
+      message: `Order #${order._id.toString().slice(-6).toUpperCase()} was cancelled by the customer.`,
+      orderId: order._id.toString(),
     });
     await order.save();
     return { status: "success", message: "Order cancelled", data: order };
@@ -256,6 +280,14 @@ export const AdminUpdateOrderStatusService = async (req) => {
       user: order.user, role: "admin", type: "order",
       title: `Order Status: ${newStatus.replace(/_/g, " ").toUpperCase()}`,
       message: `Order #${order._id.toString().slice(-6).toUpperCase()} status changed to ${newStatus.replace(/_/g, " ")}`,
+      orderId: order._id.toString(),
+    });
+
+    // Notify the user about status change
+    createNotification({
+      user: order.user, role: "user", type: "order",
+      title: `Order Update: ${newStatus.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}`,
+      message: `Your order #${order._id.toString().slice(-6).toUpperCase()} status has been updated to ${newStatus.replace(/_/g, " ")}.`,
       orderId: order._id.toString(),
     });
 

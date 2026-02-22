@@ -966,7 +966,7 @@ export const GetProfileService = async (req) => {
 export const UpdateProfileService = async (req) => {
   try {
     const userId = req.headers.user_id;
-    const { name, phone, profileImage, email } = req.body;
+    const { name, phone, profileImage, email, address } = req.body;
 
     const user = await User.findById(userId);
 
@@ -1014,6 +1014,11 @@ export const UpdateProfileService = async (req) => {
       user.profileImage = profileImage;
     }
 
+    // Update address
+    if (address !== undefined) {
+      user.address = address.trim() || null;
+    }
+
     await user.save();
 
     const updatedUser = await User.findById(userId).select("-password");
@@ -1022,6 +1027,60 @@ export const UpdateProfileService = async (req) => {
       status: "success",
       message: "Profile updated successfully",
       data: updatedUser,
+    };
+  } catch (e) {
+    return { status: "failed", message: e.toString() };
+  }
+};
+
+/**
+ * Change password for authenticated user
+ * Required: currentPassword, newPassword, confirmPassword
+ */
+export const ChangePasswordService = async (req) => {
+  try {
+    const userId = req.headers.user_id;
+    const { currentPassword, newPassword, confirmPassword } = req.body;
+
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return { status: "failed", message: "All fields are required" };
+    }
+
+    if (newPassword !== confirmPassword) {
+      return { status: "failed", message: "New passwords do not match" };
+    }
+
+    if (newPassword.length < 6) {
+      return { status: "failed", message: "Password must be at least 6 characters" };
+    }
+
+    if (currentPassword === newPassword) {
+      return { status: "failed", message: "New password must be different from current password" };
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return { status: "failed", message: "User not found" };
+    }
+
+    // Google-only users have no password
+    if (!user.password) {
+      return { status: "failed", message: "Cannot change password for Google-authenticated accounts" };
+    }
+
+    // Verify current password
+    const isMatch = await comparePassword(currentPassword, user.password);
+    if (!isMatch) {
+      return { status: "failed", message: "Current password is incorrect" };
+    }
+
+    // Hash and save new password
+    user.password = await hashPassword(newPassword);
+    await user.save();
+
+    return {
+      status: "success",
+      message: "Password changed successfully",
     };
   } catch (e) {
     return { status: "failed", message: e.toString() };

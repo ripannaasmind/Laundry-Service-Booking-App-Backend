@@ -212,3 +212,19 @@ export const UpdateProfile = async (req, res) => {
     return res.status(500).json({ status: "failed", message: error.toString() });
   }
 };
+
+/**
+ * @route   PUT /api/v1/auth/change-password
+ * @desc    Change password for authenticated user
+ * @access  Private
+ */
+export const ChangePassword = async (req, res) => {
+  try {
+    const { ChangePasswordService } = await import("../service/auth.service.js");
+    const result = await ChangePasswordService(req);
+    const statusCode = result.status === "success" ? 200 : 400;
+    return res.status(statusCode).json(result);
+  } catch (error) {
+    return res.status(500).json({ status: "failed", message: error.toString() });
+  }
+};

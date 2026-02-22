@@ -8,7 +8,7 @@ import { DeliveryVerification, StaffVerification } from "../middleware/roleVerif
 // Auth Controllers
 import {
   Register, Login, GoogleAuth, ForgotPassword, VerifyForgotPasswordOTP,
-  ResetPassword, SendLoginOTP, VerifyLoginOTP, Logout, GetProfile, UpdateProfile,
+  ResetPassword, SendLoginOTP, VerifyLoginOTP, Logout, GetProfile, UpdateProfile, ChangePassword,
 } from "../controller/auth.controller.js";
 
 // Service Controllers
@@ -95,6 +95,7 @@ router.post("/auth/verify-login-otp", VerifyLoginOTP);
 router.post("/auth/logout", AuthVerification, Logout);
 router.get("/auth/profile", AuthVerification, GetProfile);
 router.put("/auth/profile", AuthVerification, UpdateProfile);
+router.put("/auth/change-password", AuthVerification, ChangePassword);
 
 // ========== SERVICE ROUTES (Public) ==========
 router.get("/services", GetAllServices);
