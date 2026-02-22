@@ -193,8 +193,10 @@ To populate the database with initial data:
 node src/seed.js
 ```
 
----
+-----
 
 ## 📄 License
 
 ISC
+
+
